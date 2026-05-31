@@ -1,0 +1,26 @@
+Tokenizando texto completo a nivel de carácter...
+--> ¡Estructura de Caracteres lista!
+    Tamaño del Vocabulario: 66 caracteres.
+    Bloques de Train (Stride 16): 35000
+    Bloques de Test (Independiente): 871
+--- Generando texto a partir de: 'BAPTISTA:
+' ---
+But he is done to this house, hold him with men's
+fair and secret a midwife and say 'twere with the
+people and fair deposed and not the head,
+Whose sick and the fined stroke to see yours;
+But leave the singer that you are rest;
+My fair soldiers, my lord, and then he doth sine
+That he will not behold example for the king,
+And seeks to stabb'd the souls of the one
+To the extremes. What he was much like thought!
+O thou shalt have been knight on thy age
+The sun that he store and honours the sea,
+Even with a guess and cold adversely.
+
+DUKE VINCENTIO:
+And where is thy state of Gloucester's black?
+
+G
+
+--- Fin del texto generado ---
