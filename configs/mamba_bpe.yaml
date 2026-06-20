@@ -1,48 +1,41 @@
-name: mamba_bpe
-
-model:
-  d_model: 256
-  num_layers: 4
-  dropout: 0.2
-  ffn_dropout: 0.2
-  embedding_dropout: 0.1
-  stochastic_depth: 0.1
-
-  attention:
-    type: mamba
-    d_state: 16
-    expand_factor: 2
-    d_conv: 4
-
-  ffn:
-    type: standard
-    d_ff: 1024
-    activation: gelu
-
-  position:
-    type: none
-    max_len: 5000
-
 dataset:
+  cache_dir: ./data
+  max_seq_len: 128
+  max_test_chunks: 5000
+  max_train_chunks: 100000
   name: wikitext2
   tokenization: bpe
-  vocab_size: 4096
-  max_seq_len: 128
   train_stride: 16
-  cache_dir: ./data
-  max_train_chunks: 35000
-  max_test_chunks: 2000
-
+  vocab_size: 4096
+model:
+  attention:
+    d_conv: 4
+    d_state: 16
+    expand_factor: 2
+    type: mamba
+  d_model: 512
+  dropout: 0.2
+  embedding_dropout: 0.1
+  ffn:
+    activation: gelu
+    d_ff: 2048
+    type: standard
+  ffn_dropout: 0.2
+  num_layers: 7
+  position:
+    max_len: 5000
+    type: none
+  stochastic_depth: 0.1
+name: mamba_bpe
 training:
   batch_size: 64
-  num_epochs: 50
-  learning_rate: 0.0005
-  weight_decay: 0.1
-  grad_clip: 1.0
-  scheduler: cosine
   early_stop_patience: 5
-
+  grad_clip: 1.0
+  learning_rate: 0.0005
   loss:
-    type: cross_entropy
-    label_smoothing: 0.1
     ignore_index: auto
+    label_smoothing: 0.1
+    type: cross_entropy
+  num_epochs: 50
+  scheduler: cosine
+  weight_decay: 0.1

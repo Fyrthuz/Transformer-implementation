@@ -295,6 +295,49 @@ En TensorBoard:
 
 ---
 
+## Regularización contra Overfitting
+
+El sistema incluye varias técnicas de regularización configurables:
+
+| Técnica | Parámetro | Default | Efecto |
+|---------|-----------|---------|--------|
+| **Stochastic Depth** | `model.stochastic_depth` | `0.0` | Saltea capas al azar durante training (decaimiento lineal: primeras capas menos, últimas más). Scaling en inferencia. |
+| **Dropout en atención** | `model.attention_dropout` | = `dropout` | Dropout interno en cada head de atención |
+| **Dropout en FFN** | `model.ffn_dropout` | = `dropout` | Dropout entre capas del FFN |
+| **Dropout en embedding** | `model.embedding_dropout` | = `dropout` | Dropout en embedding + posición |
+| **Weight Decay** | `training.weight_decay` | `0.01` | Regularización L2 en AdamW |
+| **Label Smoothing** | `training.loss.label_smoothing` | `0.025` | Suaviza las targets, evita confianza excesiva |
+| **Early Stopping** | `training.early_stop_patience` | `0` | Detiene training si test loss no mejora en N epochs |
+| **Gradient Clipping** | `training.grad_clip` | `1.0` | Norma máxima del gradiente |
+
+### Stochastic Depth
+
+Capa por capa, la probabilidad de dropout se escala linealmente:
+
+```
+drop_prob(layer) = start + (end - start) * layer / (num_layers - 1)
+```
+
+Donde `start = stochastic_depth / 2` y `end = stochastic_depth`. Las primeras capas se saltan menos, las últimas más. Durante inferencia todas las capas se ejecutan con scaling `1 / (1 - drop_prob)`.
+
+### Recomendación para WikiText-2
+
+```yaml
+model:
+  dropout: 0.2
+  attention_dropout: 0.2
+  ffn_dropout: 0.2
+  embedding_dropout: 0.1
+  stochastic_depth: 0.1
+
+training:
+  weight_decay: 0.1
+  early_stop_patience: 5
+
+  loss:
+    label_smoothing: 0.1
+```
+
 ## Perplexity
 
 Se calcula como `exp(loss)` al final de cada epoch:

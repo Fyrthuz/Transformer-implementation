@@ -1,49 +1,42 @@
-name: moe_linear
-
-model:
-  d_model: 256
-  num_layers: 4
-  dropout: 0.2
-  attention_dropout: 0.2
-  ffn_dropout: 0.1
-  embedding_dropout: 0.1
-  stochastic_depth: 0.1
-
-  attention:
-    type: linear
-    num_heads: 8
-
-  ffn:
-    type: moe
-    d_ff: 1024
-    num_experts: 8
-    top_k: 2
-
-  position:
-    type: sinusoidal
-    max_len: 5000
-
 dataset:
+  cache_dir: ./data
+  max_seq_len: 128
+  max_test_chunks: 5000
+  max_train_chunks: 100000
   name: wikitext2
   tokenization: bpe
-  vocab_size: 4096
-  max_seq_len: 128
   train_stride: 16
-  cache_dir: ./data
-  max_train_chunks: 35000
-  max_test_chunks: 2000
-
+  vocab_size: 4096
+model:
+  attention:
+    num_heads: 8
+    type: linear
+  attention_dropout: 0.2
+  d_model: 512
+  dropout: 0.2
+  embedding_dropout: 0.1
+  ffn:
+    d_ff: 2048
+    num_experts: 8
+    top_k: 2
+    type: moe
+  ffn_dropout: 0.1
+  num_layers: 7
+  position:
+    max_len: 5000
+    type: sinusoidal
+  stochastic_depth: 0.1
+name: moe_linear
 training:
   batch_size: 64
-  num_epochs: 50
-  learning_rate: 0.0005
-  weight_decay: 0.1
-  grad_clip: 1.0
-  scheduler: cosine
   early_stop_patience: 5
-
+  grad_clip: 1.0
+  learning_rate: 0.0005
   loss:
-    type: cross_entropy
-    label_smoothing: 0.1
     ignore_index: auto
+    label_smoothing: 0.1
     moe_load_balance_coef: 0.01
+    type: cross_entropy
+  num_epochs: 50
+  scheduler: cosine
+  weight_decay: 0.1
