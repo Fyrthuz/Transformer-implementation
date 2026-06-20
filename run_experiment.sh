@@ -11,15 +11,17 @@ usage() {
 Usage: ./run_experiment.sh <command> [options]
 
 Commands:
-  train   -c <config.yaml> [overrides...]
-  sweep   -c <sweep.yaml>
+  train     -c <config.yaml> [overrides...]
+  generate  -m <model.pt> -p "<prompt>" [-t temp] [-n chars] [-c config.yaml]
+  sweep     -c <sweep.yaml>
   list
   tensorboard-only
 
 Examples:
-  ./run_experiment.sh train -c configs/mha_rope.yaml
-  ./run_experiment.sh train -c configs/mha_rope.yaml model.attention.type=gqa
+  ./run_experiment.sh train -c configs/gqa_swiglu.yaml
+  ./run_experiment.sh train -c configs/gqa_swiglu.yaml model.attention.type=gqa
   ./run_experiment.sh train model.attention.type=mamba model.ffn.type=swiglu training.num_epochs=10
+  ./run_experiment.sh generate -m best_model.pt -p "ROMEO:" -t 0.7 -n 300 -c configs/gqa_swiglu.yaml
   ./run_experiment.sh sweep -c configs/sweep_example.yaml
   ./run_experiment.sh list
 
@@ -80,6 +82,9 @@ case "$COMMAND" in
     train)
         start_tensorboard
         run_python train "$@"
+        ;;
+    generate)
+        run_python generate "$@"
         ;;
     sweep)
         start_tensorboard

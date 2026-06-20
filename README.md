@@ -16,10 +16,10 @@ pip install -r requirements.txt
 
 ```bash
 # Script todo-en-uno (TensorBoard automático)
-./run_experiment.sh train -c configs/mha_rope.yaml
+./run_experiment.sh train -c configs/gqa_swiglu.yaml
 
 # Sin script
-python run.py train -c configs/mha_rope.yaml
+python run.py train -c configs/gqa_swiglu.yaml
 
 # Sweep (grid search automático)
 python run.py sweep -c configs/sweep_example.yaml
@@ -160,7 +160,7 @@ training:
 Cualquier campo del YAML se sobreescribe desde la CLI:
 
 ```bash
-python run.py train -c configs/mha_rope.yaml \
+python run.py train -c configs/gqa_swiglu.yaml \
   model.attention.type=gqa \
   model.attention.num_kv_heads=2 \
   model.ffn.type=swiglu \
@@ -177,7 +177,7 @@ python run.py train -c configs/mha_rope.yaml \
 
 ```bash
 # Desde config YAML
-python run.py train -c configs/mha_rope.yaml
+python run.py train -c configs/gqa_swiglu.yaml
 
 # Config inline (sin YAML)
 python run.py train \
@@ -199,7 +199,7 @@ python run.py generate \
   -p "ROMEO:\n" \
   -t 0.7 \
   -n 600 \
-  -c configs/mha_rope.yaml
+  -c configs/gqa_swiglu.yaml
 ```
 
 ### `sweep` — Grid Search automático
@@ -240,10 +240,10 @@ Muestra todos los mecanismos de atención, FFNs, posiciones y datasets disponibl
 
 ```bash
 # Entrenar con TensorBoard incluido
-./run_experiment.sh train -c configs/mha_rope.yaml
+./run_experiment.sh train -c configs/gqa_swiglu.yaml
 
 # Con overrides
-./run_experiment.sh train -c configs/mha_rope.yaml model.attention.type=gqa
+./run_experiment.sh train -c configs/gqa_swiglu.yaml model.attention.type=gqa
 
 # Grid search
 ./run_experiment.sh sweep -c configs/sweep_example.yaml
@@ -252,7 +252,7 @@ Muestra todos los mecanismos de atención, FFNs, posiciones y datasets disponibl
 ./run_experiment.sh tensorboard-only
 
 # Sin TensorBoard
-NO_TENSORBOARD=1 ./run_experiment.sh train -c configs/mha_rope.yaml
+NO_TENSORBOARD=1 ./run_experiment.sh train -c configs/gqa_swiglu.yaml
 ```
 
 Variables de entorno:
@@ -358,8 +358,8 @@ Test Perplexity  = exp(Test Loss)
 
 | Archivo | Atención | FFN | Posición | Dataset |
 |---------|----------|-----|----------|---------|
-| `configs/mha_rope.yaml` | MHA | Standard | RoPE | WikiText-2 |
-| `configs/gqa_swiglu.yaml` | GQA (2 KV heads) | SwiGLU | Sinusoidal | WikiText-2 |
+| `configs/gqa_swiglu.yaml` | MHA | Standard | RoPE | WikiText-2 |
+| `configs/gqa_swiglu.yaml` | GQA (2 KV heads) | SwiGLU | RoPE | WikiText-2 |
 | `configs/mamba_bpe.yaml` | Mamba | Standard | None | WikiText-2 |
 | `configs/moe_linear.yaml` | Linear | MoE (8 experts) | Sinusoidal | WikiText-2 |
 | `configs/wikitext_mqa_rope.yaml` | MQA | SwiGLU | RoPE | WikiText-2 |
