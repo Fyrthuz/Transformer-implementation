@@ -1,50 +1,438 @@
-# Transformer Experiment: Tiny Shakespeare
+# Transformer Experiment
 
-Este proyecto implementa un modelo **Transformer Decoder-only** (estilo GPT) entrenado para tareas de modelado de lenguaje causal (generación de texto) utilizando el dataset de Shakespeare.
+Implementación modular de un **Transformer decoder-only** (estilo GPT) con 9 mecanismos de atención, 4 variantes de FFN, 3 codificaciones posicionales, múltiples datasets, loss functions customizables, **CLI completa** y **grid search automático** con métricas vía TensorBoard.
 
-## Estructura del Proyecto
+## Instalación
 
-- **`main.py`**: El script principal que coordina la carga de datos, el entrenamiento y la validación. Incluye integración con TensorBoard.
-- **`transformer.py`**: Definición de la arquitectura. Incluye Multi-Head Attention, bloques de Transformer, codificación posicional y capas de embedding.
-- **`dataset_preparation.py`**: Script para descargar y preparar el dataset `tinyshakespeare.txt`. Contiene la lógica de `SimpleTokenizer` y el split de datos.
-- **`generate.py`**: Script para realizar inferencia y generar texto nuevo a partir de un prompt usando el mejor checkpoint guardado.
-- **`requirements.txt`**: Dependencias del proyecto.
-
-## Requisitos
-
-Instala las dependencias necesarias con:
 ```bash
+# Con uv (recomendado)
+uv sync
+
+# Con pip
 pip install -r requirements.txt
 ```
 
-## Entrenamiento
+## Uso rápido
 
-Para iniciar el entrenamiento, simplemente ejecuta:
 ```bash
-python main.py
+# Script todo-en-uno (TensorBoard automático)
+./run_experiment.sh train -c configs/mha_rope.yaml
+
+# Sin script
+python run.py train -c configs/mha_rope.yaml
+
+# Sweep (grid search automático)
+python run.py sweep -c configs/sweep_example.yaml
+
+# Generar texto con modelo entrenado
+python run.py generate -m best_model.pt -p "ROMEO:\n" -t 0.7
+
+# Listar componentes disponibles
+python run.py list
+
+# TensorBoard
+tensorboard --logdir=runs
 ```
-El modelo guardará los logs de entrenamiento en la carpeta `runs/`.
 
-## Monitoreo con TensorBoard
+---
 
-Para visualizar las métricas (Loss de entrenamiento y test) en tiempo real:
-1. Abre una terminal en la raíz del proyecto.
-2. Ejecuta:
-   ```bash
-   tensorboard --logdir=runs
-   ```
-3. Abre `http://localhost:6006` en tu navegador.
+## Componentes
 
-## Generación de Texto
+### 9 Mecanismos de Atención
 
-Para probar el modelo entrenado y generar diálogos al estilo Shakespeare:
+| Nombre | CLI | Paper | Descripción |
+|--------|-----|-------|-------------|
+| Multi-Head Attention | `mha` | [Attention Is All You Need](https://arxiv.org/abs/1706.03762) | Atención estándar con Q, K, V por head |
+| Multi-Query Attention | `mqa` | [Fast Transformer Decoding](https://arxiv.org/abs/1911.02150) | Un solo K,V compartido entre todos los heads |
+| Grouped Query Attention | `gqa` | [GQA: Training Generalized Multi-Query Transformer](https://arxiv.org/abs/2305.13245) | K,V agrupados, intermedio entre MHA y MQA |
+| Linear Attention | `linear` | [Transformers are RNNs](https://arxiv.org/abs/2006.16236) | Kernel ELU, complejidad O(N) lineal |
+| Window Attention | `window` | [Longformer](https://arxiv.org/abs/2004.05150) | Atención restringida a una ventana local |
+| Dilated Attention | `dilated` | [Longformer](https://arxiv.org/abs/2004.05150) | Atención con patrón de dilatación periódico |
+| Global-Local Attention | `global_local` | [BigBird](https://arxiv.org/abs/2007.14062) | Tokens globales + atención local por ventana |
+| Mamba | `mamba` | [Mamba: Linear-Time Sequence Modeling](https://arxiv.org/abs/2312.00752) | SSM selectivo simplificado (S6) |
+| SSM | `ssm` | [Structured State Spaces](https://arxiv.org/abs/2111.00396) | State Space Model básico |
+
+### 4 Variantes de FFN
+
+| Nombre | CLI | Descripción |
+|--------|-----|-------------|
+| Standard | `standard` | `Linear → GELU/ReLU → Linear` |
+| SwiGLU | `swiglu` | `(SiLU(xW₁) ⊗ xW₃)W₂` (PaLM, Llama) |
+| Gated | `gated` | `(GELU(xW₁) ⊗ σ(xW_gate))W₂` |
+| Mixture of Experts | `moe` | Router top-k con N expertos + load balancing loss |
+
+### 3 Codificaciones Posicionales
+
+| Nombre | CLI | Descripción |
+|--------|-----|-------------|
+| Sinusoidal | `sinusoidal` | Senos/cosenos del paper original |
+| RoPE | `rope` | Rotary Position Embedding (Llama, GPT-NeoX) |
+| None | `none` | Sin PE explícita (para Mamba/SSM) |
+
+### 3 Datasets
+
+| Nombre | CLI | Tokenización | Tamaño |
+|--------|-----|-------------|--------|
+| Tiny Shakespeare | `tinyshakespeare` | char o BPE | ~1MB |
+| WikiText-2 | `wikitext2` | BPE | ~10MB |
+| WikiText-103 | `wikitext103` | BPE | ~180MB |
+
+### 4 Loss Functions
+
+| Nombre | CLI | Descripción |
+|--------|-----|-------------|
+| Cross-Entropy | `cross_entropy` | Con label smoothing configurable |
+| NLL Loss | `nll` | Negative Log Likelihood |
+| MSE Loss | `mse` | Mean Squared Error |
+| Focal Loss | `focal` | Focal loss con γ configurable |
+
+---
+
+## Sistema de Configuración
+
+Toda la configuración se define en YAML. Ejemplo completo:
+
+```yaml
+name: mi_experimento
+
+model:
+  d_model: 256
+  num_layers: 4
+  dropout: 0.1
+
+  attention:
+    type: gqa               # mha | mqa | gqa | linear | window | dilated | global_local | mamba | ssm
+    num_heads: 8
+    num_kv_heads: 2          # solo para gqa
+    window_size: 64          # solo para window / dilated
+    dilation: 4              # solo para dilated
+    d_state: 16              # solo para mamba / ssm
+    expand_factor: 2         # solo para mamba
+    d_conv: 4                # solo para mamba
+
+  ffn:
+    type: swiglu             # standard | swiglu | gated | moe
+    d_ff: 1024
+    activation: gelu         # solo para standard
+    num_experts: 8           # solo para moe
+    top_k: 2                 # solo para moe
+
+  position:
+    type: rope               # sinusoidal | rope | none
+    max_len: 5000
+    rope_theta: 10000.0      # solo para rope
+
+dataset:
+  name: wikitext2
+  tokenization: bpe          # char | bpe
+  vocab_size: 4096
+  max_seq_len: 128
+  train_stride: 16
+  cache_dir: ./data
+  max_train_chunks: 35000
+  max_test_chunks: 2000
+
+training:
+  batch_size: 64
+  num_epochs: 50
+  learning_rate: 0.0005
+  weight_decay: 0.01
+  grad_clip: 1.0
+  scheduler: cosine          # cosine | linear | none
+
+  loss:
+    type: cross_entropy      # cross_entropy | nll | mse | focal
+    label_smoothing: 0.025
+    ignore_index: auto
+    moe_load_balance_coef: 0.01   # peso auxiliar para MoE
+    focal_gamma: 2.0              # solo para focal
+```
+
+### CLI Overrides
+
+Cualquier campo del YAML se sobreescribe desde la CLI:
+
 ```bash
-python generate.py
+python run.py train -c configs/mha_rope.yaml \
+  model.attention.type=gqa \
+  model.attention.num_kv_heads=2 \
+  model.ffn.type=swiglu \
+  model.position.type=rope \
+  training.num_epochs=50 \
+  dataset.name=wikitext2
 ```
-Puedes ajustar la `temperature` en el script para controlar la creatividad de la salida.
 
-## Detalles Técnicos
-- **Arquitectura**: 4 capas, 8 cabezales de atención, 256 dimensiones de embedding, 1024 d_ff.
-- **Contexto**: Longitud de secuencia máxima de 128 caracteres.
-- **Dataset**: Tiny Shakespeare (90% entrenamiento / 10% validación). Se utiliza una ventana deslizante con stride de 16 para aumentar el volumen de datos de entrenamiento.
-- **Tokenización**: Nivel de carácter (Vocabulario reducido de ~66 tokens), lo que permite al modelo aprender ortografía y estructura desde cero.
+---
+
+## CLI Completa
+
+### `train` — Entrenar un modelo
+
+```bash
+# Desde config YAML
+python run.py train -c configs/mha_rope.yaml
+
+# Config inline (sin YAML)
+python run.py train \
+  model.attention.type=mamba \
+  model.attention.d_state=32 \
+  model.ffn.type=swiglu \
+  model.position.type=none \
+  dataset.name=tinyshakespeare \
+  dataset.tokenization=char \
+  training.num_epochs=30 \
+  name=mamba_test
+```
+
+### `generate` — Generar texto
+
+```bash
+python run.py generate \
+  -m best_model.pt \
+  -p "ROMEO:\n" \
+  -t 0.7 \
+  -n 600 \
+  -c configs/mha_rope.yaml
+```
+
+### `sweep` — Grid Search automático
+
+```yaml
+# configs/sweep_example.yaml
+sweep:
+  strategy: grid
+  max_combinations: 12
+  repetitions: 1
+
+  model.attention.type: [mha, mqa, gqa, linear]
+  model.attention.num_heads: [8]
+  model.ffn.type: [swiglu]
+  training.num_epochs: [50]
+  dataset.name: [wikitext2]
+```
+
+```bash
+python run.py sweep -c configs/sweep_example.yaml
+```
+
+Cada combinación se entrena secuencialmente y al final se imprime una tabla con resultados ordenados por loss.
+
+### `list` — Listar componentes
+
+```bash
+python run.py list
+```
+
+Muestra todos los mecanismos de atención, FFNs, posiciones y datasets disponibles.
+
+---
+
+## Script todo-en-uno
+
+`run_experiment.sh` lanza TensorBoard automáticamente junto con el experimento:
+
+```bash
+# Entrenar con TensorBoard incluido
+./run_experiment.sh train -c configs/mha_rope.yaml
+
+# Con overrides
+./run_experiment.sh train -c configs/mha_rope.yaml model.attention.type=gqa
+
+# Grid search
+./run_experiment.sh sweep -c configs/sweep_example.yaml
+
+# Solo TensorBoard
+./run_experiment.sh tensorboard-only
+
+# Sin TensorBoard
+NO_TENSORBOARD=1 ./run_experiment.sh train -c configs/mha_rope.yaml
+```
+
+Variables de entorno:
+
+| Variable | Default | Descripción |
+|----------|---------|-------------|
+| `TENSORBOARD_PORT` | `6006` | Puerto de TensorBoard |
+| `TENSORBOARD_DIR` | `./runs` | Directorio de logs |
+| `NO_TENSORBOARD` | — | `=1` desactiva TensorBoard automático |
+
+---
+
+## TensorBoard
+
+```bash
+tensorboard --logdir=runs --port=6006
+# Abre http://localhost:6006
+```
+
+Cada experimento genera `runs/{experiment_name}/` con las siguientes métricas en **paneles separados**:
+
+| Panel | Métrica | Frecuencia |
+|-------|---------|------------|
+| `Train/Loss_step` | Loss por paso | cada batch |
+| `Train/Loss` | Loss media de entrenamiento | cada epoch |
+| `Test/Loss` | Loss de validación | cada epoch |
+| `Train/Perplexity` | Perplexity de entrenamiento | cada epoch |
+| `Test/Perplexity` | Perplexity de validación | cada epoch |
+| `Params/Learning_Rate` | Tasa de aprendizaje | cada epoch |
+| `Samples/Prediction_Test` | Texto generado de ejemplo | cada 5 epochs |
+
+Además, la pestaña **HPARAMS** permite comparar experimentos lado a lado con tabla de hiperparámetros.
+
+### Comparar múltiples experimentos
+
+En TensorBoard:
+1. Abre la pestaña **Scalars**
+2. En el panel izquierdo, selecciona los experimentos que quieras comparar
+3. Las curvas se superponen automáticamente
+
+---
+
+## Perplexity
+
+Se calcula como `exp(loss)` al final de cada epoch:
+
+```
+Train Perplexity = exp(Train Loss)
+Test Perplexity  = exp(Test Loss)
+```
+
+- Se loguea a TensorBoard como `Train/Perplexity` y `Test/Perplexity`
+- Se muestra en consola junto al loss
+- Es el criterio para guardar el mejor checkpoint (`best_model.pt`)
+- Se registra en la tabla HPARAMS de TensorBoard
+
+---
+
+## Configuraciones de ejemplo
+
+| Archivo | Atención | FFN | Posición | Dataset |
+|---------|----------|-----|----------|---------|
+| `configs/mha_rope.yaml` | MHA | Standard | RoPE | WikiText-2 |
+| `configs/gqa_swiglu.yaml` | GQA (2 KV heads) | SwiGLU | Sinusoidal | WikiText-2 |
+| `configs/mamba_bpe.yaml` | Mamba | Standard | None | WikiText-2 |
+| `configs/moe_linear.yaml` | Linear | MoE (8 experts) | Sinusoidal | WikiText-2 |
+| `configs/wikitext_mqa_rope.yaml` | MQA | SwiGLU | RoPE | WikiText-2 |
+| `configs/sweep_example.yaml` | Grid search comparando MHA, MQA, GQA, Linear | — | — | WikiText-2 |
+
+---
+
+## Estructura del Proyecto
+
+```
+transformer_impl/              # Paquete principal
+  ├── __init__.py              # Export público
+  ├── config.py                # Config: dataclasses + YAML loader + CLI parser
+  ├── model.py                 # Transformer: embedding + N capas + output
+  ├── embedding.py             # Token embedding + posición
+  ├── train.py                 # Training loop + TensorBoard + perplexity + checkpoint
+  ├── generate.py              # Generación con sampling por temperatura
+  │
+  ├── attention/               # 9 mecanismos de atención
+  │   ├── __init__.py          # Registry: mha, mqa, gqa, linear, window, dilated, global_local, mamba, ssm
+  │   ├── base.py              # Clase abstracta BaseAttention
+  │   ├── mha.py               # Multi-Head Attention
+  │   ├── mqa.py               # Multi-Query Attention
+  │   ├── gqa.py               # Grouped Query Attention
+  │   ├── linear_attn.py       # Linear Attention (kernel ELU)
+  │   ├── window_attn.py       # Sliding Window Attention
+  │   ├── dilated_attn.py      # Dilated Attention
+  │   ├── global_local.py      # Global-Local Attention
+  │   ├── mamba.py             # Mamba SSM simplificado
+  │   └── ssm.py               # State Space Model
+  │
+  ├── ffn/                     # 4 variantes de FFN
+  │   ├── __init__.py          # Registry: standard, swiglu, gated, moe
+  │   ├── base.py              # Clase abstracta BaseFFN
+  │   ├── standard.py          # Linear → GELU/ReLU → Linear
+  │   ├── swiglu.py            # SwiGLU (SiLU gate)
+  │   ├── gated.py             # Gated FFN (sigmoid gate)
+  │   └── moe.py               # Mixture of Experts con load balancing loss
+  │
+  ├── position/                # 3 codificaciones posicionales
+  │   ├── __init__.py          # Registry: sinusoidal, rope, none
+  │   ├── base.py
+  │   ├── sinusoidal.py        # Senos/cosenos (Vaswani et al.)
+  │   ├── rope.py              # Rotary Position Embedding
+  │   └── none.py              # Identity (sin PE)
+  │
+  ├── blocks/
+  │   ├── __init__.py
+  │   └── transformer_block.py # Pre-LN block: norm → attn → residuo → norm → ffn → residuo
+  │
+  └── datasets/                # Cargadores de datasets
+      ├── __init__.py          # Registry: tinyshakespeare, wikitext2, wikitext103
+      ├── base.py              # Dataset preparer abstracto
+      ├── tinyshakespeare.py   # Tiny Shakespeare (char o BPE)
+      ├── wikitext.py          # WikiText-2 y WikiText-103
+      └── tokenizer.py         # CharTokenizer + BPETokenizer
+
+configs/                       # 6 configuraciones YAML de ejemplo
+run.py                         # CLI principal (argparse, 4 subcomandos)
+run_experiment.sh              # Script bash con TensorBoard automático
+```
+
+---
+
+## Añadir un nuevo componente
+
+### Nueva atención
+
+```python
+# transformer_impl/attention/mi_atencion.py
+import torch
+from . import register_attention
+
+@register_attention("mi_atencion")
+class MiAtencion(torch.nn.Module):
+    def __init__(self, d_model, num_heads, dropout=0.1, **kwargs):
+        super().__init__()
+        # ...
+
+    def forward(self, x, mask=None):
+        # ...
+        return x
+```
+
+### Nuevo FFN
+
+```python
+# transformer_impl/ffn/mi_ffn.py
+from . import register_ffn
+
+@register_ffn("mi_ffn")
+class MiFFN(BaseFFN):
+    def __init__(self, d_model, d_ff, dropout=0.1):
+        super().__init__()
+        # ...
+
+    def forward(self, x):
+        return x
+```
+
+### Nuevo dataset
+
+```python
+# transformer_impl/datasets/mi_dataset.py
+from . import register_dataset
+
+@register_dataset("mi_dataset")
+class MiDataset(BaseDatasetPreparer):
+    def prepare(self, cfg):
+        # ...
+        return DatasetOutput(...)
+```
+
+Los decoradores `@register_*` registran automáticamente el componente y estará disponible vía CLI y YAML.
+
+---
+
+## Dependencias
+
+```
+torch>=2.1.0
+tokenizers>=0.13.3    → BPE tokenizer
+pyyaml>=6.0           → Configuración YAML
+tqdm>=4.65.0          → Progress bars
+tensorboard>=2.13.0   → Métricas y visualización
+```

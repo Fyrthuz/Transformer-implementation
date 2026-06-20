@@ -1,0 +1,42 @@
+name: gqa_swiglu
+
+model:
+  d_model: 256
+  num_layers: 4
+  dropout: 0.1
+
+  attention:
+    type: gqa
+    num_heads: 8
+    num_kv_heads: 2
+
+  ffn:
+    type: swiglu
+    d_ff: 1024
+
+  position:
+    type: sinusoidal
+    max_len: 5000
+
+dataset:
+  name: wikitext2
+  tokenization: bpe
+  vocab_size: 4096
+  max_seq_len: 128
+  train_stride: 16
+  cache_dir: ./data
+  max_train_chunks: 35000
+  max_test_chunks: 2000
+
+training:
+  batch_size: 64
+  num_epochs: 50
+  learning_rate: 0.0005
+  weight_decay: 0.01
+  grad_clip: 1.0
+  scheduler: cosine
+
+  loss:
+    type: cross_entropy
+    label_smoothing: 0.025
+    ignore_index: auto

@@ -11,3 +11,13 @@ wheels/
 
 
 runs/
+
+# Data / checkpoints
+data/
+tinyshakespeare.txt
+*.pt
+*.pth
+best_model.pt
+
+# Lock file (experimental repo, no pin deps)
+*.lock

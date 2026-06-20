@@ -1,21 +1,5 @@
-# Núcleo de Deep Learning
 torch>=2.1.0
-torchvision
-torchaudio
-
-# Procesamiento de Datos y Tokenización
-datasets>=2.14.0
 tokenizers>=0.13.3
-numpy>=1.24.0
-pandas>=2.0.0
-
-# Utilidades de Entrenamiento y Monitoreo
+pyyaml>=6.0
 tqdm>=4.65.0
 tensorboard>=2.13.0
-wandb>=0.15.0  # Opcional, pero recomendado para tracking de experimentos
-
-# Optimización y Hardware
-accelerate>=0.21.0  # Facilita el entrenamiento en múltiples GPUs/TPUs
-bitsandbytes>=0.41.0 # Para optimizadores de 8-bit si la VRAM es limitada
-scipy
-tiktoken
