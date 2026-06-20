@@ -1,5 +1,6 @@
 import torch
 import math
+import time
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
@@ -97,6 +98,11 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
     print(f"FFN: {model_cfg.model.ffn.type}")
     print(f"Position: {model_cfg.model.position.type}")
 
+    experiment_start_time = time.time()
+    total_train_time = 0.0
+    total_inference_time = 0.0
+    total_inference_samples = 0
+
     hparam_dict = {
         'attention': model_cfg.model.attention.type,
         'ffn': model_cfg.model.ffn.type,
@@ -116,6 +122,7 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
     for epoch in range(cfg.num_epochs):
         model.train()
         total_train_loss = 0
+        epoch_start = time.time()
 
         for batch in train_loader:
             optimizer.zero_grad()
@@ -138,11 +145,15 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
             global_step += 1
 
         scheduler.step()
+        epoch_time = time.time() - epoch_start
+        total_train_time += epoch_time
         avg_train_loss = total_train_loss / len(train_loader)
         train_ppl = math.exp(avg_train_loss)
 
         model.eval()
         total_test_loss = 0
+        infer_start = time.time()
+        infer_batch_count = 0
 
         with torch.no_grad():
             for i, t_batch in enumerate(test_loader):
@@ -153,6 +164,8 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
                 t_output = model(t_inputs, mask=t_mask)
                 t_loss = loss_fn(t_output.reshape(-1, vocab_size), t_targets.reshape(-1))
                 total_test_loss += t_loss.item()
+
+                infer_batch_count += 1
 
                 if i == 0 and epoch % 5 == 0:
                     preds = t_output.argmax(dim=-1)
@@ -166,6 +179,11 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
                         f"**Predicted**: {tokenizer.decode(clean_preds)}"
                     )
                     writer.add_text('Samples/Prediction_Test', test_example, epoch)
+
+        infer_time = time.time() - infer_start
+        total_inference_time += infer_time
+        total_inference_samples += infer_batch_count * t_batch.size(0)
+        infer_time_per_sample = infer_time / max(infer_batch_count * t_batch.size(0), 1) * 1000
 
         avg_test_loss = total_test_loss / len(test_loader)
         test_ppl = math.exp(avg_test_loss)
@@ -199,12 +217,35 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
         writer.add_scalar('Train/Perplexity', train_ppl, epoch)
         writer.add_scalar('Test/Perplexity', test_ppl, epoch)
         writer.add_scalar('Params/Learning_Rate', scheduler.get_last_lr()[0], epoch)
+        writer.add_scalar('Time/Epoch_seconds', epoch_time, epoch)
+        writer.add_scalar('Time/Inference_ms_per_sample', infer_time_per_sample, epoch)
+
+        if device.type == 'cuda':
+            mem_alloc = torch.cuda.memory_allocated(device) / 1024**3
+            mem_reserved = torch.cuda.memory_reserved(device) / 1024**3
+            writer.add_scalar('GPU/Memory_allocated_GB', mem_alloc, epoch)
+            writer.add_scalar('GPU/Memory_reserved_GB', mem_reserved, epoch)
+
         writer.flush()
+
+        timing_str = f" | Time: {epoch_time:.1f}s"
+        if device.type == 'cuda':
+            mem_alloc = torch.cuda.memory_allocated(device) / 1024**3
+            timing_str += f" | GPU: {mem_alloc:.2f}GB"
 
         print(f"Epoch [{epoch+1:02d}/{cfg.num_epochs}] | "
               f"Train Loss: {avg_train_loss:.4f} | Train PPL: {train_ppl:.2f} | "
               f"Test Loss: {avg_test_loss:.4f} | Test PPL: {test_ppl:.2f} | "
-              f"LR: {scheduler.get_last_lr()[0]:.6f}")
+              f"LR: {scheduler.get_last_lr()[0]:.6f}{timing_str}")
+
+    total_exp_time = time.time() - experiment_start_time
+    avg_infer_per_sample = (total_inference_time / total_inference_samples * 1000) if total_inference_samples > 0 else 0
+
+    print(f"\n  --> Total time: {total_exp_time:.1f}s | Train: {total_train_time:.1f}s | Inference: {total_inference_time:.1f}s")
+    print(f"  --> Avg inference: {avg_infer_per_sample:.2f}ms/sample")
+
+    writer.add_scalar('Time/Total_experiment_seconds', total_exp_time, 0)
+    writer.add_scalar('Time/Avg_inference_ms_per_sample', avg_infer_per_sample, 0)
 
     writer.add_hparams(hparam_dict, {'hparam/test_loss': best_test_loss, 'hparam/test_perplexity': math.exp(best_test_loss)})
 

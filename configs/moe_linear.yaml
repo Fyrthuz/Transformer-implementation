@@ -12,16 +12,16 @@ model:
     num_heads: 8
     type: linear
   attention_dropout: 0.2
-  d_model: 512
+  d_model: 256
   dropout: 0.2
   embedding_dropout: 0.1
   ffn:
-    d_ff: 2048
+    d_ff: 1024
     num_experts: 8
     top_k: 2
     type: moe
   ffn_dropout: 0.1
-  num_layers: 7
+  num_layers: 6
   position:
     max_len: 5000
     type: sinusoidal
