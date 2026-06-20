@@ -19,5 +19,14 @@ tinyshakespeare.txt
 *.pth
 best_model.pt
 
-# Lock file (experimental repo, no pin deps)
+# Python version (pyenv)
+.python-version
+
+# Lock files
 *.lock
+
+# Sweep result export JSONs
+sweep_*.json
+
+# Generated outputs
+output_example.txt
