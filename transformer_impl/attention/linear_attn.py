@@ -1,5 +1,4 @@
 import torch
-import math
 from . import register_attention
 
 def elu_feature_map(x):
@@ -28,15 +27,20 @@ class LinearAttention(torch.nn.Module):
         q = elu_feature_map(q)
         k = elu_feature_map(k)
 
-        if mask is not None:
-            if mask.dim() == 3:
-                mask = mask.unsqueeze(1)
-            # causal masking via diagonal masking in linear attention
-            mask = mask.to(x.dtype)
-            k = k * mask.unsqueeze(-1)
-            q = q * mask.unsqueeze(-1)
+        if mask is not None and self.training:
+            kv_cumsum = torch.zeros(B, self.num_heads, self.d_k, self.d_k, device=x.device)
+            outputs = []
+            for t in range(T):
+                k_t = k[:, :, t:t+1, :]
+                v_t = v[:, :, t:t+1, :]
+                kv_cumsum = kv_cumsum + (k_t.transpose(-2, -1) @ v_t)
+                q_t = q[:, :, t:t+1, :]
+                out_t = q_t @ kv_cumsum
+                outputs.append(out_t)
+            context = torch.cat(outputs, dim=2)
+        else:
+            kv = torch.matmul(k.transpose(-2, -1), v)
+            context = torch.matmul(q, kv)
 
-        kv = torch.matmul(k.transpose(-2, -1), v)
-        context = torch.matmul(q, kv)
         context = context.transpose(1, 2).contiguous().view(B, T, self.d_model)
         return self.w_o(context)

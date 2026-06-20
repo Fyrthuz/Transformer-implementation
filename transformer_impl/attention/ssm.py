@@ -27,7 +27,7 @@ class SSMBlock(torch.nn.Module):
         x_proj, z = inp.chunk(2, dim=-1)
         x_proj = F.silu(x_proj)
 
-        dt = torch.softplus(self.dt).view(1, 1, D)
+        dt = F.softplus(self.dt).view(1, 1, D)
         A = -torch.exp(self.A_log)
 
         deltaA = torch.exp(dt.unsqueeze(-1) * A)

@@ -42,18 +42,16 @@ class MambaBlock(torch.nn.Module):
         x_proj = F.silu(x_proj)
 
         dt_x, B_proj, C_proj = self.x_proj(x_proj).split([self.d_inner, self.d_state, self.d_state], dim=-1)
-        dt = torch.softplus(self.dt_proj(dt_x))
-        B_proj = B_proj.view(B, T, self.d_inner, self.d_state)
-        C_proj = C_proj.view(B, T, self.d_inner, self.d_state)
+        dt = F.softplus(self.dt_proj(dt_x))
         A = -torch.exp(self.A_log.float())
         deltaA = torch.exp(dt.unsqueeze(-1) * A)
-        deltaB_u = dt.unsqueeze(-1) * B_proj * x_proj.unsqueeze(-1)
+        deltaB_u = dt.unsqueeze(-1) * B_proj.unsqueeze(2) * x_proj.unsqueeze(-1)
 
         h = torch.zeros(B, self.d_inner, self.d_state, device=x.device)
         ys = []
         for t in range(T):
             h = deltaA[:, t] * h + deltaB_u[:, t]
-            y = (h * C_proj[:, t]).sum(-1) + self.D * x_proj[:, t]
+            y = (h * C_proj[:, t].unsqueeze(1)).sum(-1) + self.D * x_proj[:, t]
             ys.append(y)
         y = torch.stack(ys, dim=1)
         y = y * F.silu(z)

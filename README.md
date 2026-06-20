@@ -224,6 +224,20 @@ python run.py sweep -c configs/sweep_example.yaml
 
 Cada combinación se entrena secuencialmente y al final se imprime una tabla con resultados ordenados por loss.
 
+### `sweep_shakespeare.py` — Grid Search completo en TinyShakespeare
+
+Barre **las 108 combinaciones** (9 atenciones × 4 FFN × 3 posiciones) con modelos pequeños en TinyShakespeare:
+
+```bash
+# Ejecutar sweep completo
+python3 sweep_shakespeare.py
+
+# Con TensorBoard abierto en otra terminal:
+tensorboard --logdir=runs --port=6006
+```
+
+Al finalizar genera un JSON con resultados (`sweep_shakespeare_results_*.json`) e imprime un ranking de las mejores configuraciones. Cada combinación crea su propia carpeta en `runs/` para inspección individual en TensorBoard.
+
 ### `list` — Listar componentes
 
 ```bash
@@ -292,6 +306,16 @@ En TensorBoard:
 1. Abre la pestaña **Scalars**
 2. En el panel izquierdo, selecciona los experimentos que quieras comparar
 3. Las curvas se superponen automáticamente
+
+### Comparar resultados del sweep en TensorBoard
+
+Tras ejecutar `sweep_shakespeare.py`, cada combinación genera su propia carpeta en `runs/`:
+
+```bash
+tensorboard --logdir=runs --port=6006
+```
+
+Usa la pestaña **HPARAMS** de TensorBoard para comparar todas las combinaciones lado a lado: ordena por `test_perplexity` para ver las configuraciones ganadoras, o filtra por tipo de atención/FFN/posición para encontrar patrones.
 
 ---
 
@@ -364,6 +388,7 @@ Test Perplexity  = exp(Test Loss)
 | `configs/moe_linear.yaml` | Linear | MoE (8 experts) | Sinusoidal | WikiText-2 |
 | `configs/wikitext_mqa_rope.yaml` | MQA | SwiGLU | RoPE | WikiText-2 |
 | `configs/sweep_example.yaml` | Grid search comparando MHA, MQA, GQA, Linear | — | — | WikiText-2 |
+| `sweep_shakespeare.py` | **108 combos**: todas las atenciones × FFN × posiciones | — | — | TinyShakespeare |
 
 ---
 
