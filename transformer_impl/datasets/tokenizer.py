@@ -59,6 +59,10 @@ class BPETokenizer:
 
 
 def train_bpe_tokenizer(texts, vocab_size=4096, cache_path=None):
+    if cache_path and os.path.exists(cache_path):
+        tok = BPETokenizer(path=cache_path)
+        tok.pad_token_id = tok.tokenizer.token_to_id('<pad>') if tok.tokenizer.token_to_id('<pad>') is not None else 0
+        return tok
     tok = BPETokenizer(vocab_size=vocab_size)
     tok.train(texts, cache_path=cache_path)
     return tok
