@@ -86,6 +86,8 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
 
     global_step = 0
     best_test_loss = float('inf')
+    epochs_no_improve = 0
+    patience = cfg.early_stop_patience
 
     print(f"Device: {device}")
     print(f"Model params: {sum(p.numel() for p in model.parameters()):,}")
@@ -170,6 +172,7 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
 
         if avg_test_loss < best_test_loss:
             best_test_loss = avg_test_loss
+            epochs_no_improve = 0
             torch.save({
                 'model_state_dict': model.state_dict(),
                 'config': {
@@ -185,6 +188,11 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
                 'test_perplexity': test_ppl,
             }, 'best_model.pt')
             print(f"  --> New best model! Test Loss: {avg_test_loss:.4f}, PPL: {test_ppl:.2f}")
+        elif patience > 0:
+            epochs_no_improve += 1
+            if epochs_no_improve >= patience:
+                print(f"  --> Early stopping after {epoch+1} epochs (no improvement for {patience} epochs)")
+                break
 
         writer.add_scalar('Train/Loss', avg_train_loss, epoch)
         writer.add_scalar('Test/Loss', avg_test_loss, epoch)

@@ -98,7 +98,13 @@ name: mi_experimento
 model:
   d_model: 256
   num_layers: 4
-  dropout: 0.1
+
+  # Regularización — dropout por componente + stochastic depth
+  dropout: 0.2                    # fallback global para todos los dropouts
+  attention_dropout: 0.2          # dropout interno de atención (si null, usa dropout)
+  ffn_dropout: 0.2                # dropout interno de FFN (si null, usa dropout)
+  embedding_dropout: 0.1          # dropout en embedding + posición (si null, usa dropout)
+  stochastic_depth: 0.1           # prob. de saltar capas (LayerDrop). 0 = desactivado
 
   attention:
     type: gqa               # mha | mqa | gqa | linear | window | dilated | global_local | mamba | ssm
@@ -136,13 +142,14 @@ training:
   batch_size: 64
   num_epochs: 50
   learning_rate: 0.0005
-  weight_decay: 0.01
+  weight_decay: 0.1          # regularización L2
   grad_clip: 1.0
   scheduler: cosine          # cosine | linear | none
+  early_stop_patience: 5     # 0 = desactivado. Detiene training si test loss no mejora
 
   loss:
     type: cross_entropy      # cross_entropy | nll | mse | focal
-    label_smoothing: 0.025
+    label_smoothing: 0.1     # suaviza targets, reduce overfitting
     ignore_index: auto
     moe_load_balance_coef: 0.01   # peso auxiliar para MoE
     focal_gamma: 2.0              # solo para focal

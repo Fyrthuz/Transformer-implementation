@@ -9,7 +9,7 @@ class Transformer(torch.nn.Module):
         self.cfg = config
         self.embedding = TransformerEmbedding(vocab_size, config.model)
         self.layers = torch.nn.ModuleList([
-            TransformerBlock(config.model, layer_idx=i)
+            TransformerBlock(config.model, layer_idx=i, num_layers=config.model.num_layers)
             for i in range(config.model.num_layers)
         ])
         self.ln_f = torch.nn.LayerNorm(config.model.d_model)

@@ -3,7 +3,11 @@ name: wikitext_mqa_rope
 model:
   d_model: 256
   num_layers: 4
-  dropout: 0.1
+  dropout: 0.2
+  attention_dropout: 0.2
+  ffn_dropout: 0.2
+  embedding_dropout: 0.1
+  stochastic_depth: 0.1
 
   attention:
     type: mqa
@@ -25,16 +29,19 @@ dataset:
   max_seq_len: 128
   train_stride: 16
   cache_dir: ./data
+  max_train_chunks: 35000
+  max_test_chunks: 2000
 
 training:
   batch_size: 64
   num_epochs: 50
   learning_rate: 0.0005
-  weight_decay: 0.01
+  weight_decay: 0.1
   grad_clip: 1.0
   scheduler: cosine
+  early_stop_patience: 5
 
   loss:
     type: cross_entropy
-    label_smoothing: 0.025
+    label_smoothing: 0.1
     ignore_index: auto

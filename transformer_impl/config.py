@@ -42,6 +42,10 @@ class ModelConfig:
     d_model: int = 256
     num_layers: int = 4
     dropout: float = 0.1
+    attention_dropout: float | None = None
+    ffn_dropout: float | None = None
+    embedding_dropout: float | None = None
+    stochastic_depth: float = 0.0
     attention: AttentionConfig = field(default_factory=AttentionConfig)
     ffn: FFNConfig = field(default_factory=FFNConfig)
     position: PositionConfig = field(default_factory=PositionConfig)
@@ -66,6 +70,7 @@ class TrainConfig:
     weight_decay: float = 0.01
     grad_clip: float = 1.0
     scheduler: str = "cosine"
+    early_stop_patience: int = 0
     loss: LossConfig = field(default_factory=LossConfig)
 
 @dataclass
