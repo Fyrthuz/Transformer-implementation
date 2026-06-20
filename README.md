@@ -224,19 +224,19 @@ python run.py sweep -c configs/sweep_example.yaml
 
 Cada combinación se entrena secuencialmente y al final se imprime una tabla con resultados ordenados por loss.
 
-### `sweep_shakespeare.py` — Grid Search completo en TinyShakespeare
-
-Barre **las 108 combinaciones** (9 atenciones × 4 FFN × 3 posiciones) con modelos pequeños en TinyShakespeare:
+### Grid Search completo en TinyShakespeare (108 combinaciones)
 
 ```bash
-# Ejecutar sweep completo
-python3 sweep_shakespeare.py
+./run_experiment.sh sweep -c configs/sweep_shakespeare.yaml
 
-# Con TensorBoard abierto en otra terminal:
+# O directamente:
+python run.py sweep -c configs/sweep_shakespeare.yaml
+
+# Con TensorBoard aparte:
 tensorboard --logdir=runs --port=6006
 ```
 
-Al finalizar genera un JSON con resultados (`sweep_shakespeare_results_*.json`) e imprime un ranking de las mejores configuraciones. Cada combinación crea su propia carpeta en `runs/` para inspección individual en TensorBoard.
+Barre las 108 combinaciones (9 atenciones × 4 FFN × 3 posiciones) con modelos pequeños (d_model=64, 2 capas) en TinyShakespeare. Cada combinación entrena 20 epochs y genera su propia carpeta en `runs/`. Al final imprime un ranking top-30 por perplexity y exporta un JSON con todos los resultados.
 
 ### `list` — Listar componentes
 
@@ -309,13 +309,13 @@ En TensorBoard:
 
 ### Comparar resultados del sweep en TensorBoard
 
-Tras ejecutar `sweep_shakespeare.py`, cada combinación genera su propia carpeta en `runs/`:
+Tras ejecutar `run.py sweep -c configs/sweep_shakespeare.yaml`, cada combinación genera su propia carpeta en `runs/`:
 
 ```bash
 tensorboard --logdir=runs --port=6006
 ```
 
-Usa la pestaña **HPARAMS** de TensorBoard para comparar todas las combinaciones lado a lado: ordena por `test_perplexity` para ver las configuraciones ganadoras, o filtra por tipo de atención/FFN/posición para encontrar patrones.
+Usa la pestaña **HPARAMS** de TensorBoard para comparar todas las combinaciones lado a lado: ordena por `test_perplexity` para ver las configuraciones ganadoras, o filtra por tipo de atención/FFN/posición para encontrar patrones. Además, el sweep exporta un JSON con el ranking completo.
 
 ---
 
@@ -388,7 +388,7 @@ Test Perplexity  = exp(Test Loss)
 | `configs/moe_linear.yaml` | Linear | MoE (8 experts) | Sinusoidal | WikiText-2 |
 | `configs/wikitext_mqa_rope.yaml` | MQA | SwiGLU | RoPE | WikiText-2 |
 | `configs/sweep_example.yaml` | Grid search comparando MHA, MQA, GQA, Linear | — | — | WikiText-2 |
-| `sweep_shakespeare.py` | **108 combos**: todas las atenciones × FFN × posiciones | — | — | TinyShakespeare |
+| `configs/sweep_shakespeare.yaml` | **108 combos**: todas las atenciones × FFN × posiciones | — | — | TinyShakespeare |
 
 ---
 

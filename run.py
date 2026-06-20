@@ -125,11 +125,12 @@ def cmd_generate(args):
 
 
 def cmd_sweep(args):
-    import yaml
+    import yaml, json, time
+    from datetime import datetime
+
     with open(args.config) as f:
         sweep_cfg = yaml.safe_load(f)
 
-    base_cfg = config_from_cli(args.config, {})
     param_grid = {}
     non_sweep_keys = {'name', 'strategy', 'max_combinations', 'repetitions'}
     sweep_meta = {k: sweep_cfg.get('sweep', {}).get(k) for k in non_sweep_keys}
@@ -140,7 +141,7 @@ def cmd_sweep(args):
 
     keys = list(param_grid.keys())
     combos = list(itertools.product(*param_grid.values()))
-    max_combos = sweep_meta.get('max_combinations', 50)
+    max_combos = sweep_meta.get('max_combinations', 500)
     if len(combos) > max_combos:
         print(f"Limiting from {len(combos)} to {max_combos} combinations")
         combos = combos[:max_combos]
@@ -150,7 +151,9 @@ def cmd_sweep(args):
     print(f"Parameters: {keys}")
     print()
 
-    results = []
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    all_results = []
+
     for idx, combo in enumerate(combos):
         overrides = {}
         for k, v in zip(keys, combo):
@@ -163,41 +166,95 @@ def cmd_sweep(args):
         cfg = config_from_cli(args.config, overrides)
         cfg.name = f"sweep_{idx:03d}"
 
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         torch.manual_seed(cfg.seed + idx)
+        start = time.time()
 
-        print(f"[{idx+1}/{len(combos)}] Running: {cfg.name}")
-        print(f"  Config: {combo}")
+        label = f"{' × '.join(str(v) for v in combo)}"
+        sys.stdout.write(f"[{idx+1}/{len(combos)}] {label} ... ")
+        sys.stdout.flush()
 
-        dataset_preparer_cls = get_dataset_preparer(cfg.dataset.name)
-        dataset_cfg = {
-            'tokenization': cfg.dataset.tokenization,
-            'max_seq_len': cfg.dataset.max_seq_len,
-            'train_stride': cfg.dataset.train_stride,
-            'vocab_size': cfg.dataset.vocab_size,
-            'cache_dir': cfg.dataset.cache_dir,
-            'max_train_chunks': cfg.dataset.max_train_chunks,
-            'max_test_chunks': cfg.dataset.max_test_chunks,
-        }
-        dataset_output = dataset_preparer_cls().prepare(dataset_cfg)
+        try:
+            dataset_preparer_cls = get_dataset_preparer(cfg.dataset.name)
+            dataset_cfg = {
+                'tokenization': cfg.dataset.tokenization,
+                'max_seq_len': cfg.dataset.max_seq_len,
+                'train_stride': cfg.dataset.train_stride,
+                'vocab_size': cfg.dataset.vocab_size,
+                'cache_dir': cfg.dataset.cache_dir,
+                'max_train_chunks': cfg.dataset.max_train_chunks,
+                'max_test_chunks': cfg.dataset.max_test_chunks,
+            }
+            dataset_output = dataset_preparer_cls().prepare(dataset_cfg)
 
-        model = Transformer(cfg, dataset_output.vocab_size).to(device)
-        model.apply(lambda m: initialize_weights(m, cfg.model.d_model))
+            model = Transformer(cfg, dataset_output.vocab_size).to(device)
+            model.apply(lambda m: initialize_weights(m, cfg.model.d_model))
 
-        writer = SummaryWriter(f'runs/{cfg.name}')
+            params = sum(p.numel() for p in model.parameters())
+            writer = SummaryWriter(f'runs/{cfg.name}')
+            best_loss, best_ppl = train_model(model, cfg, dataset_output, device, writer=writer)
 
-        best_loss, best_ppl = train_model(model, cfg, dataset_output, device, writer=writer)
-        results.append((combo, best_loss, best_ppl))
-        print(f"  Result: Loss={best_loss:.4f}, PPL={best_ppl:.2f}\n")
+            elapsed = time.time() - start
+            all_results.append((combo, best_loss, best_ppl, params, elapsed, True))
+            print(f"loss={best_loss:.4f}  ppl={best_ppl:.1f}  params={params/1e3:.1f}K  {elapsed:.1f}s")
 
-    print(f"\n{'='*60}")
-    print("SWEEP RESULTS")
-    print(f"{'='*60}")
-    print(f"{'Config':<60} {'Test Loss':<12} {'PPL':<10}")
-    print("-" * 82)
-    for combo, loss, ppl in sorted(results, key=lambda x: x[1]):
-        print(f"{str(combo):<60} {loss:<12.4f} {ppl:<10.2f}")
-    print(f"{'='*60}\n")
+        except Exception as e:
+            import traceback
+            elapsed = time.time() - start
+            all_results.append((combo, 0, 0, 0, elapsed, False))
+            print(f"ERROR: {e}")
+            traceback.print_exc()
+            print()
+
+    # ---- Ranking ----
+    passed = sum(1 for r in all_results if r[5])
+    failed = len(all_results) - passed
+
+    print(f"\n{'='*90}")
+    print(f"  SWEEP RANKING — Best configurations by Test Perplexity")
+    print(f"{'='*90}")
+    print(f"  Total: {len(all_results)} | Passed: {passed} | Failed: {failed}")
+    print()
+
+    successful = [r for r in all_results if r[5]]
+    successful.sort(key=lambda x: x[2])
+
+    print(f"  {'Rank':>4s}  {'Config':<50s}  {'Loss':>8s}  {'PPL':>8s}  {'Params':>8s}  {'Time':>6s}")
+    print(f"  {'-'*4}  {'-'*50}  {'-'*8}  {'-'*8}  {'-'*8}  {'-'*6}")
+    for rank, (combo, loss, ppl, params, elapsed, _) in enumerate(successful[:30], 1):
+        label = ' × '.join(str(v) for v in combo)
+        print(f"  {rank:4d}  {label:<50s}  {loss:8.4f}  {ppl:8.2f}  {params/1e3:7.1f}K  {elapsed:5.1f}s")
+    if len(successful) > 30:
+        print(f"  {'...':>4s}  ({len(successful) - 30} more not shown)")
+
+    # ---- Export JSON ----
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    sweep_name = sweep_meta.get('name', os.path.splitext(os.path.basename(args.config))[0])
+    out_path = f"sweep_{sweep_name}_{timestamp}.json"
+    out = {
+        'config': sweep_cfg,
+        'results': [
+            {
+                'combo': list(combo),
+                'test_loss': loss,
+                'test_ppl': ppl,
+                'params': params,
+                'time_s': elapsed,
+                'success': ok,
+            }
+            for combo, loss, ppl, params, elapsed, ok in all_results
+        ],
+        'ranking': [
+            {
+                'rank': r + 1,
+                'combo': list(c), 'test_loss': l, 'test_ppl': p,
+                'params': pa, 'time_s': e,
+            }
+            for r, (c, l, p, pa, e, _) in enumerate(successful)
+        ],
+    }
+    with open(out_path, 'w') as f:
+        json.dump(out, f, indent=2)
+    print(f"\nResults exported to: {out_path}\n")
 
 
 def cmd_list(args):

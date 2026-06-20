@@ -1,0 +1,79 @@
+name: sweep_shakespeare
+
+model:
+  d_model: 64
+  num_layers: 2
+  dropout: 0.1
+  stochastic_depth: 0.0
+
+  attention:
+    type: mha
+    num_heads: 4
+    num_kv_heads: null
+    d_state: 8
+    expand_factor: 2
+    d_conv: 3
+
+  ffn:
+    type: standard
+    d_ff: 128
+    activation: gelu
+    num_experts: 4
+    top_k: 2
+
+  position:
+    type: sinusoidal
+    max_len: 5000
+
+dataset:
+  name: tinyshakespeare
+  tokenization: char
+  vocab_size: 4096
+  max_seq_len: 64
+  train_stride: 32
+  cache_dir: ./data
+  max_train_chunks: 500
+  max_test_chunks: 50
+
+training:
+  batch_size: 32
+  num_epochs: 20
+  learning_rate: 0.001
+  weight_decay: 0.01
+  grad_clip: 1.0
+  scheduler: cosine
+  early_stop_patience: 5
+
+  loss:
+    type: cross_entropy
+    label_smoothing: 0.05
+    ignore_index: auto
+    moe_load_balance_coef: 0.01
+
+sweep:
+  strategy: grid
+  max_combinations: 108
+  repetitions: 1
+  name: shakespeare_all
+
+  model.attention.type:
+    - mha
+    - mqa
+    - gqa
+    - linear
+    - window
+    - dilated
+    - global_local
+    - mamba
+    - ssm
+
+  model.ffn.type:
+    - standard
+    - swiglu
+    - gated
+    - moe
+
+  model.position.type:
+    - sinusoidal
+    - rope
+    - none
