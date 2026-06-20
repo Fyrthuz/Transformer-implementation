@@ -27,8 +27,7 @@ model:
 
 dataset:
   name: tinyshakespeare
-  tokenization: char
-  vocab_size: 4096
+  tokenization: char       # ← usa CharTokenizer (vocab ~66), vocab_size se ignora
   max_seq_len: 64
   train_stride: 32
   cache_dir: ./data

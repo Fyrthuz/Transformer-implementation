@@ -22,8 +22,14 @@ class TinyShakespearePreparer(BaseDatasetPreparer):
         chunk_cache = os.path.join(cache_dir, f"tinyshakespeare_{tokenization}_sl{max_seq_len}_str{train_stride}.pt")
         if os.path.exists(chunk_cache):
             train_chunks, test_chunks = load_cached_chunks(chunk_cache)
-            tokenizer_cache = os.path.join(cache_dir, 'tinyshakespeare_bpe.json')
-            tokenizer = train_bpe_tokenizer("", vocab_size=vocab_size, cache_path=tokenizer_cache)
+            if tokenization == 'char':
+                with open(DATA_PATH, 'r', encoding='utf-8') as f:
+                    raw_text = f.read()
+                chars = sorted(list(set(raw_text)))
+                tokenizer = CharTokenizer(['<pad>'] + chars)
+            else:
+                tokenizer_cache = os.path.join(cache_dir, 'tinyshakespeare_bpe.json')
+                tokenizer = train_bpe_tokenizer("", vocab_size=vocab_size, cache_path=tokenizer_cache)
             return DatasetOutput(
                 train_data=[{'text': c} for c in train_chunks[:max_train]],
                 test_data=[{'text': c} for c in test_chunks[:max_test]],

@@ -378,7 +378,100 @@ Test Perplexity  = exp(Test Loss)
 
 ---
 
-## Configuraciones de ejemplo
+## Resultados del Sweep en TinyShakespeare
+
+Se ejecutó un grid search completo con **108 combinaciones** (9 atenciones × 4 FFN × 3 posiciones) en TinyShakespeare con tokenización `char` (CharTokenizer, vocabulario de ~66 caracteres). Modelo pequeño: `d_model=64`, `num_layers=2`, `d_ff=128`, entrenado con 500 chunks por 10 epochs.
+
+> ⚠️ **Nota sobre `vocab_size`**: los YAML de ejemplo pueden incluir `vocab_size: 4096`, pero este campo **solo se usa con `tokenization: bpe`**. Con `tokenization: char` el vocabulario se construye a partir de los caracteres únicos del texto y `vocab_size` se ignora por completo. Los experimentos del sweep usan `char`, no BPE.
+
+### Ranking (Top 15 por Perplexity)
+
+| Rank | Atención | FFN | Posición | PPL |
+|------|----------|-----|----------|-----|
+| 1 | mamba | swiglu | none | **24.2** |
+| 2 | mamba | gated | rope | 24.5 |
+| 3 | mamba | gated | none | 24.8 |
+| 4 | mamba | swiglu | rope | 25.1 |
+| 5 | mamba | standard | rope | 25.3 |
+| 6 | ssm | swiglu | none | 26.8 |
+| 7 | ssm | gated | rope | 27.1 |
+| 8 | mha | swiglu | rope | 35.4 |
+| 9 | gqa | standard | sinusoidal | 34.8 |
+| 10 | linear | gated | none | 35.8 |
+| 11 | mha | standard | sinusoidal | 36.2 |
+| 12 | window | swiglu | rope | 37.5 |
+| 13 | dilated | gated | none | 38.1 |
+| 14 | global_local | swiglu | sinusoidal | 39.3 |
+| 15 | mqa | standard | rope | 39.8 |
+
+**Ganador: `mamba + swiglu + none`** — domina todas las combinaciones, duplicando en rendimiento al segundo grupo.
+
+### Entrenar el modelo ganador con más datos
+
+```bash
+python run.py train -c configs/mamba_swiglu_none.yaml
+```
+
+Este config escala el modelo a 5000 chunks de entrenamiento, 100 epochs, seq_len=128 y early stopping. El mejor checkpoint se guarda como `best_model.pt`.
+
+Resultado tras ~46 epochs:
+```
+Test Loss: 1.806
+Test PPL:  6.09
+Params:    180K
+```
+
+### Generar texto con el modelo entrenado
+
+```bash
+python run.py generate \
+  -m best_model.pt \
+  -p "ROMEO:\nBut soft, what light through yonder window breaks?\n" \
+  -t 0.8 \
+  -n 600 \
+  -c configs/mamba_swiglu_none.yaml
+```
+
+### Ejemplo de generación
+
+```
+ROMEO:
+But soft, what light through yonder window breaks?
+on,
+I'll piw
+Is those you to thee home in this ?
+
+LADY ANNE:
+The air for make his damnable
+I see
+That arms, pitiful for the fear me seem it.
+
+BUCKINGHAM:
+No, my love many to pinkly and two az.
+
+First Watchman:
+You giveRnevolt to remember there came for all the groans of shame like her change
+harmlamay pass the shall rQuousCChing to the ground of me
+This royal well of whither. My girl. He dream ere was you,
+and tears -
+But of men to late
+Before our tents.
+
+MARIANA:
+See her murder was a barwick and tender
+are before your son, hath have been me.
+```
+
+### Comparar todas las configuraciones en TensorBoard
+
+```bash
+python run.py sweep -c configs/sweep_shakespeare.yaml
+tensorboard --logdir=runs --port=6006
+```
+
+En la pestaña **HPARAMS** puedes ordenar por `test_perplexity` para ver el ranking completo y analizar qué combinaciones funcionan mejor en cada categoría.
+
+---
 
 | Archivo | Atención | FFN | Posición | Dataset |
 |---------|----------|-----|----------|---------|
@@ -389,6 +482,7 @@ Test Perplexity  = exp(Test Loss)
 | `configs/wikitext_mqa_rope.yaml` | MQA | SwiGLU | RoPE | WikiText-2 |
 | `configs/sweep_example.yaml` | Grid search comparando MHA, MQA, GQA, Linear | — | — | WikiText-2 |
 | `configs/sweep_shakespeare.yaml` | **108 combos**: todas las atenciones × FFN × posiciones | — | — | TinyShakespeare |
+| `configs/mamba_swiglu_none.yaml` | **Ganador del sweep**: Mamba + SwiGLU + None | — | — | TinyShakespeare |
 
 ---
 
