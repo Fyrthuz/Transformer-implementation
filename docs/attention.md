@@ -11,6 +11,11 @@ class AttentionModule(nn.Module):
 
 They are registered via `@register_attention("name")` and instantiated through `get_attention(name, **kwargs)`.
 
+**Common config (AttentionConfig):**
+| Param | Default | Description |
+|-------|---------|-------------|
+| `scale_attention` | `True` | Scale scores by `1/sqrt(d_k)` before softmax. Works on MHA, MQA, GQA, Window, Dilated, Global-Local. Ignored by Linear, Mamba, SSM. |
+
 ---
 
 ### 1. MHA — Multi-Head Attention (`@register_attention("mha")`)

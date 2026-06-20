@@ -4,12 +4,13 @@ from . import register_attention
 
 @register_attention("mqa")
 class MultiQueryAttention(torch.nn.Module):
-    def __init__(self, d_model, num_heads, dropout=0.1, **kwargs):
+    def __init__(self, d_model, num_heads, dropout=0.1, scale_attention=True, **kwargs):
         super().__init__()
         assert d_model % num_heads == 0
         self.d_model = d_model
         self.num_heads = num_heads
         self.d_k = d_model // num_heads
+        self.scale_attention = scale_attention
         self.w_q = torch.nn.Linear(d_model, d_model, bias=False)
         self.w_k = torch.nn.Linear(d_model, self.d_k, bias=False)
         self.w_v = torch.nn.Linear(d_model, self.d_k, bias=False)
@@ -22,7 +23,9 @@ class MultiQueryAttention(torch.nn.Module):
         k = self.w_k(x).view(B, T, 1, self.d_k).transpose(1, 2)
         v = self.w_v(x).view(B, T, 1, self.d_k).transpose(1, 2)
 
-        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
+        scores = torch.matmul(q, k.transpose(-2, -1))
+        if self.scale_attention:
+            scores = scores / math.sqrt(self.d_k)
         if mask is not None:
             if mask.dim() == 3:
                 mask = mask.unsqueeze(1)

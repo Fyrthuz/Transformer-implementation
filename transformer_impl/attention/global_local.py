@@ -4,7 +4,7 @@ from . import register_attention
 
 @register_attention("global_local")
 class GlobalLocalAttention(torch.nn.Module):
-    def __init__(self, d_model, num_heads, window_size=64, dropout=0.1, num_global_tokens=8, **kwargs):
+    def __init__(self, d_model, num_heads, window_size=64, dropout=0.1, scale_attention=True, num_global_tokens=8, **kwargs):
         super().__init__()
         assert d_model % num_heads == 0
         self.d_model = d_model
@@ -12,6 +12,7 @@ class GlobalLocalAttention(torch.nn.Module):
         self.d_k = d_model // num_heads
         self.window_size = window_size
         self.num_global_tokens = num_global_tokens
+        self.scale_attention = scale_attention
         self.w_q = torch.nn.Linear(d_model, d_model, bias=False)
         self.w_k = torch.nn.Linear(d_model, d_model, bias=False)
         self.w_v = torch.nn.Linear(d_model, d_model, bias=False)
@@ -31,7 +32,9 @@ class GlobalLocalAttention(torch.nn.Module):
         k_all = self.w_k(x_cat).view(B, total_T, self.num_heads, self.d_k).transpose(1, 2)
         v_all = self.w_v(x_cat).view(B, total_T, self.num_heads, self.d_k).transpose(1, 2)
 
-        scores = torch.matmul(q_all, k_all.transpose(-2, -1)) / math.sqrt(self.d_k)
+        scores = torch.matmul(q_all, k_all.transpose(-2, -1))
+        if self.scale_attention:
+            scores = scores / math.sqrt(self.d_k)
 
         full_mask = torch.ones(total_T, total_T, device=x.device, dtype=torch.bool)
         half_w = self.window_size // 2

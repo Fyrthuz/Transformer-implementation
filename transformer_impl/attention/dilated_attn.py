@@ -4,7 +4,7 @@ from . import register_attention
 
 @register_attention("dilated")
 class DilatedAttention(torch.nn.Module):
-    def __init__(self, d_model, num_heads, window_size=64, dilation=4, dropout=0.1, **kwargs):
+    def __init__(self, d_model, num_heads, window_size=64, dilation=4, dropout=0.1, scale_attention=True, **kwargs):
         super().__init__()
         assert d_model % num_heads == 0
         self.d_model = d_model
@@ -12,6 +12,7 @@ class DilatedAttention(torch.nn.Module):
         self.d_k = d_model // num_heads
         self.window_size = window_size
         self.dilation = dilation
+        self.scale_attention = scale_attention
         self.w_q = torch.nn.Linear(d_model, d_model, bias=False)
         self.w_k = torch.nn.Linear(d_model, d_model, bias=False)
         self.w_v = torch.nn.Linear(d_model, d_model, bias=False)
@@ -24,7 +25,9 @@ class DilatedAttention(torch.nn.Module):
         k = self.w_k(x).view(B, T, self.num_heads, self.d_k).transpose(1, 2)
         v = self.w_v(x).view(B, T, self.num_heads, self.d_k).transpose(1, 2)
 
-        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
+        scores = torch.matmul(q, k.transpose(-2, -1))
+        if self.scale_attention:
+            scores = scores / math.sqrt(self.d_k)
 
         dilate_mask = torch.ones(T, T, device=x.device, dtype=torch.bool)
         half_w = self.window_size // 2

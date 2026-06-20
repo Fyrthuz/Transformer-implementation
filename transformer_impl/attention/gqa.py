@@ -4,13 +4,14 @@ from . import register_attention
 
 @register_attention("gqa")
 class GroupedQueryAttention(torch.nn.Module):
-    def __init__(self, d_model, num_heads, num_kv_heads=None, dropout=0.1, **kwargs):
+    def __init__(self, d_model, num_heads, num_kv_heads=None, dropout=0.1, scale_attention=True, **kwargs):
         super().__init__()
         assert d_model % num_heads == 0
         self.num_kv_heads = num_kv_heads if num_kv_heads is not None else max(1, num_heads // 4)
         self.num_heads = num_heads
         self.d_k = d_model // num_heads
         self.d_model = d_model
+        self.scale_attention = scale_attention
         self.w_q = torch.nn.Linear(d_model, num_heads * self.d_k, bias=False)
         self.w_k = torch.nn.Linear(d_model, self.num_kv_heads * self.d_k, bias=False)
         self.w_v = torch.nn.Linear(d_model, self.num_kv_heads * self.d_k, bias=False)
@@ -28,7 +29,9 @@ class GroupedQueryAttention(torch.nn.Module):
             k = k[:, :, None, :, :].expand(B, self.num_kv_heads, n_repeat, T, self.d_k).reshape(B, self.num_heads, T, self.d_k)
             v = v[:, :, None, :, :].expand(B, self.num_kv_heads, n_repeat, T, self.d_k).reshape(B, self.num_heads, T, self.d_k)
 
-        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
+        scores = torch.matmul(q, k.transpose(-2, -1))
+        if self.scale_attention:
+            scores = scores / math.sqrt(self.d_k)
         if mask is not None:
             if mask.dim() == 3:
                 mask = mask.unsqueeze(1)

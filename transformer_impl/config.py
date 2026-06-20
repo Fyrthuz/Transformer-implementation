@@ -14,6 +14,7 @@ class AttentionConfig:
     d_state: int = 16
     expand_factor: int = 2
     d_conv: int = 4
+    scale_attention: bool = True
 
 @dataclass
 class FFNConfig:

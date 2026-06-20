@@ -16,6 +16,7 @@ class TransformerBlock(torch.nn.Module):
             "d_model": config.d_model,
             "num_heads": cfg.num_heads,
             "dropout": attn_drop,
+            "scale_attention": cfg.scale_attention,
         }
         if cfg.num_kv_heads is not None:
             attn_kwargs["num_kv_heads"] = cfg.num_kv_heads

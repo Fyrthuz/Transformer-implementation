@@ -24,31 +24,48 @@ CLI overrides: `python run.py train model.attention.type=mamba model.ffn.type=sw
 
 ## Results — TinyShakespeare Sweep (108 combos)
 
-**Winner: `mamba + swiglu + position=none`** — Test PPL **6.09** (180K params)
+Grid search over 9 attention × 4 FFN × 3 positions on TinyShakespeare (char, d_model=64, 2 layers, 20 epochs). All 108 completed successfully.
 
 ```bash
-python run.py train -c configs/mamba_swiglu_none.yaml
+python run.py sweep -c configs/sweep_shakespeare.yaml
 ```
 
-Top 15:
+### Top 30
 
-| Rank | Attention | FFN | Position | PPL |
-|------|-----------|-----|----------|-----|
-| 1 | mamba | swiglu | none | **24.2** |
-| 2 | mamba | gated | rope | 24.5 |
-| 3 | mamba | gated | none | 24.8 |
-| 4 | mamba | swiglu | rope | 25.1 |
-| 5 | mamba | standard | rope | 25.3 |
-| 6 | ssm | swiglu | none | 26.8 |
-| 7 | ssm | gated | rope | 27.1 |
-| 8 | mha | swiglu | rope | 35.4 |
-| 9 | gqa | standard | sinusoidal | 34.8 |
-| 10 | linear | gated | none | 35.8 |
-| 11 | mha | standard | sinusoidal | 36.2 |
-| 12 | window | swiglu | rope | 37.5 |
-| 13 | dilated | gated | none | 38.1 |
-| 14 | global_local | swiglu | sinusoidal | 39.3 |
-| 15 | mqa | standard | rope | 39.8 |
+| Rank | Attention | FFN | Position | PPL | Params |
+|------|-----------|-----|----------|-----|--------|
+| 1 | mamba | moe | none | **9.76** | 264K |
+| 2 | mamba | swiglu | none | 9.85 | 180K |
+| 3 | mamba | gated | none | 10.00 | 180K |
+| 4 | mamba | standard | none | 10.01 | 164K |
+| 5 | mamba | moe | rope | 10.60 | 264K |
+| 6 | mamba | gated | rope | 10.71 | 180K |
+| 7 | mamba | standard | rope | 10.88 | 164K |
+| 8 | mamba | swiglu | rope | 10.94 | 180K |
+| 9 | mamba | gated | sinusoidal | 12.87 | 180K |
+| 10 | mamba | swiglu | sinusoidal | 12.91 | 180K |
+| 11 | mamba | moe | sinusoidal | 12.97 | 264K |
+| 12 | mamba | standard | sinusoidal | 13.02 | 164K |
+| 13 | global_local | moe | none | 15.21 | 176K |
+| 14 | dilated | swiglu | none | 15.28 | 91K |
+| 15 | dilated | moe | none | 15.29 | 175K |
+| 16 | dilated | gated | none | 15.30 | 91K |
+| 17 | global_local | standard | none | 15.36 | 76K |
+| 18 | global_local | gated | none | 15.41 | 92K |
+| 19 | global_local | swiglu | none | 15.45 | 92K |
+| 20 | window | moe | none | 15.48 | 175K |
+| 21 | dilated | standard | none | 15.59 | 75K |
+| 22 | window | swiglu | none | 15.60 | 91K |
+| 23 | dilated | moe | rope | 15.61 | 175K |
+| 24 | window | standard | none | 15.64 | 75K |
+| 25 | ssm | moe | none | 15.72 | 171K |
+| 26 | ssm | swiglu | none | 15.74 | 87K |
+| 27 | ssm | gated | none | 15.78 | 87K |
+| 28 | gqa | swiglu | none | 15.79 | 79K |
+| 29 | mha | moe | none | 15.80 | 175K |
+| 30 | mqa | swiglu | none | 15.83 | 79K |
+
+**Mamba + position=none** domina el top-12 completo. El ganador claro es **mamba + moe/swiglu + none**.
 
 ---
 
