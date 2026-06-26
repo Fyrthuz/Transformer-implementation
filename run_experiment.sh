@@ -14,6 +14,8 @@ Commands:
   train     -c <config.yaml> [overrides...]
   generate  -m <model.pt> -p "<prompt>" [-t temp] [-n chars] [-c config.yaml]
   sweep     -c <sweep.yaml>
+  pipeline  -c <pipeline.yaml> [overrides...]
+  test      [pytest args...]
   list
   tensorboard-only
 
@@ -23,6 +25,10 @@ Examples:
   ./run_experiment.sh train model.attention.type=mamba model.ffn.type=swiglu training.num_epochs=10
   ./run_experiment.sh generate -m best_model.pt -p "ROMEO:" -t 0.7 -n 300 -c configs/gqa_swiglu.yaml
   ./run_experiment.sh sweep -c configs/sweep_example.yaml
+  ./run_experiment.sh pipeline -c configs/pipeline_full.yaml
+  ./run_experiment.sh pipeline -c configs/pipeline_full.yaml training.batch_size=32
+  ./run_experiment.sh test
+  ./run_experiment.sh test -v -k dpo
   ./run_experiment.sh list
 
 Environment variables:
@@ -89,6 +95,13 @@ case "$COMMAND" in
     sweep)
         start_tensorboard
         run_python sweep "$@"
+        ;;
+    pipeline)
+        start_tensorboard
+        run_python pipeline "$@"
+        ;;
+    test)
+        .venv/bin/python -m pytest tests/ "$@"
         ;;
     list)
         run_python list

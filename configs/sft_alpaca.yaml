@@ -1,0 +1,36 @@
+name: alpaca_sft
+model:
+  d_model: 256
+  num_layers: 6
+  dropout: 0.2
+  attention:
+    type: mha
+    num_heads: 4
+  ffn:
+    type: swiglu
+    d_ff: 768
+  position:
+    type: none
+dataset:
+  name: alpaca_cleaned
+  tokenization: bpe
+  vocab_size: 16000
+  max_seq_len: 512
+sft:
+  enabled: true
+  loss_on_response_only: true
+  packing: true
+  logging: tensorboard
+  log_interval: 10
+  save_steps: 500
+  eval_steps: 500
+  gradient_accumulation_steps: 2
+training:
+  batch_size: 8
+  learning_rate: 0.00002
+  weight_decay: 0.01
+  warmup_steps: 50
+  max_steps: 3000
+  scheduler: warmup_cosine
+  mixed_precision: bf16
+seed: 42

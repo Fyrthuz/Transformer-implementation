@@ -32,6 +32,14 @@ class MambaBlock(torch.nn.Module):
         self.out_proj = torch.nn.Linear(self.d_inner, d_model, bias=False)
 
     def forward(self, x, mask=None):
+        if self.training:
+            return torch.utils.checkpoint.checkpoint(
+                self._forward_impl, x, mask,
+                use_reentrant=False, preserve_rng_state=False,
+            )
+        return self._forward_impl(x, mask)
+
+    def _forward_impl(self, x, mask=None):
         B, T, D = x.shape
         inp = self.in_proj(x)
         x_proj, z = inp.chunk(2, dim=-1)
@@ -43,7 +51,7 @@ class MambaBlock(torch.nn.Module):
 
         dt_x, B_proj, C_proj = self.x_proj(x_proj).split([self.d_inner, self.d_state, self.d_state], dim=-1)
         dt = F.softplus(self.dt_proj(dt_x))
-        A = -torch.exp(self.A_log.float())
+        A = -torch.exp(self.A_log)
         deltaA = torch.exp(dt.unsqueeze(-1) * A)
         deltaB_u = dt.unsqueeze(-1) * B_proj.unsqueeze(2) * x_proj.unsqueeze(-1)
 

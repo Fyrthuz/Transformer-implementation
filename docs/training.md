@@ -91,6 +91,28 @@ The `runs/` directory contains all TensorBoard logs. Launch with:
 tensorboard --logdir=runs --port=6006
 ```
 
+## Run Naming
+
+Each run creates a directory in `runs/` with a descriptive name:
+
+```
+{prefix}_{attention}_{ffn}_{position}_d{d_model}l{num_layers}_{timestamp}
+```
+
+Examples:
+
+| Run | Directory |
+|-----|-----------|
+| `./run_experiment.sh pipeline` | `runs/pipeline_pretrain_mha_swiglu_none_d256l6_20260626_202617/` |
+| `./run_experiment.sh pretrain` | `runs/pretrain_mha_swiglu_none_d256l6_20260626_202617/` |
+| `./run_experiment.sh train` | `runs/train_mha_standard_rope_d256l6_20260626_202617/` |
+
+Override with `name=custom_name` in CLI overrides:
+
+```bash
+python run.py pretrain -c configs/pretrain_tinystories.yaml name=mi_experimento
+```
+
 ## Generation
 
 **File:** `transformer_impl/generate.py:generate_text`
@@ -108,6 +130,42 @@ for _ in range(max_chars):
 - Context is truncated to the last 128 tokens if it exceeds `max_seq_len`.
 - Temperature: lower values (e.g., 0.5) produce more deterministic output; higher values (e.g., 1.0) increase diversity.
 - Token decoding uses the dataset's tokenizer (char-level for TinyShakespeare char, BPE otherwise).
+
+## Fine-tuning con Checkpoint Adaptativo
+
+**File:** `transformer_impl/utils/checkpointing.py:load_checkpoint_with_adaptation`
+
+Al cargar un checkpoint pre-entrenado con un modelo de **arquitectura diferente**, el sistema adapta automáticamente los pesos compatibles:
+
+| Cambio en la config | Comportamiento |
+|---------------------|----------------|
+| `vocab_size` diferente | **Redimensiona** embedding y output layer — copia pesos del vocabulario compartido, inicializa el resto aleatoriamente |
+| `num_layers` diferente | **Carga capas comunes** — si el checkpoint tiene 6 capas y el nuevo modelo 8, carga las primeras 6, las 2 restantes se inicializan aleatoriamente |
+| `d_model` diferente | **Omite** todas las capas con shape mismatch (embedding, atención, FFN, LayerNorm). Solo carga `output_layer.bias` y capas sin dependencia de `d_model` |
+| `num_heads` diferente | **Omite** los pesos de atención (shape mismatch), preserva el resto |
+| Misma arquitectura | **Carga completa** — todos los pesos coinciden |
+
+Ejemplo — preentrenar con modelo pequeño y fine-tunear con uno más grande:
+
+```bash
+# 1. Pre-training con modelo pequeño (6 layers, d_model=256)
+python run.py pretrain -c configs/pretrain_tinystories.yaml \
+  model.num_layers=6 model.d_model=256
+
+# 2. SFT con modelo grande, cargando checkpoint parcial
+python run.py sft -c configs/sft_alpaca.yaml \
+  model.num_layers=8 model.d_model=512 \
+  -m best_model.pt
+```
+
+En este caso, el sistema reportará:
+```
+  Checkpoint: loaded 3 layers matched (ln_f, output_layer.bias)
+  Checkpoint: resized 2 layers (vocab size differs)
+  Checkpoint: skipped 24 mismatched layers (architecture differs)
+```
+
+Esto permite **transfer learning entre arquitecturas distintas** sin necesidad de reentrenar desde cero.
 
 ## Grid Search (Sweep)
 
@@ -138,9 +196,12 @@ Wraps `run.py` with:
 - Cleanup of TensorBoard process on exit.
 
 ```bash
-./run_experiment.sh train -c configs/mamba_swiglu_none.yaml
+./run_experiment.sh pipeline -c configs/pipeline_full.yaml
+./run_experiment.sh train -c configs/pretrain_tinystories.yaml
 ./run_experiment.sh sweep -c configs/sweep_shakespeare.yaml
 ./run_experiment.sh generate -m best_model.pt -p "ROMEO:" -n 500 -t 0.7
+./run_experiment.sh test                  # run all tests
+./run_experiment.sh test -v -k dpo        # run only dpo tests
 ./run_experiment.sh list
-NO_TENSORBOARD=1 ./run_experiment.sh train -c configs/mha_rope.yaml
+NO_TENSORBOARD=1 ./run_experiment.sh train -c configs/pretrain_tinystories.yaml
 ```

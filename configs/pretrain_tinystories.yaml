@@ -1,0 +1,38 @@
+name: tinystories_pretrain
+model:
+  d_model: 256
+  num_layers: 6
+  dropout: 0.1
+  attention:
+    type: mha
+    num_heads: 4
+  ffn:
+    type: swiglu
+    d_ff: 768
+  position:
+    type: none
+dataset:
+  name: tinystories
+  tokenization: bpe
+  vocab_size: 16000
+  max_seq_len: 512
+  train_stride: 256
+pretrain:
+  enabled: true
+  warmup_steps: 1000
+  max_steps: 50000
+  gradient_accumulation_steps: 4
+  mixed_precision: bf16
+  logging: tensorboard
+  save_steps: 1000
+  eval_steps: 500
+training:
+  batch_size: 16
+  learning_rate: 0.0003
+  weight_decay: 0.1
+  grad_clip: 1.0
+  scheduler: warmup_cosine
+  loss:
+    type: cross_entropy
+    label_smoothing: 0.0
+seed: 42

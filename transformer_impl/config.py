@@ -39,6 +39,94 @@ class LossConfig:
     focal_gamma: float | None = None
 
 @dataclass
+class TrainingStageMixin:
+    gradient_accumulation_steps: int = 1
+    mixed_precision: str | None = "bf16"
+    logging: str = "tensorboard"
+    log_interval: int = 10
+    save_steps: int = 1000
+    eval_steps: int = 1000
+    warmup_steps: int = 0
+    max_steps: int = 100000
+    save_total_limit: int = 3
+
+@dataclass
+class PretrainConfig(TrainingStageMixin):
+    enabled: bool = False
+    warmup_steps: int = 2000
+    max_steps: int = 100000
+    gradient_accumulation_steps: int = 1
+    mixed_precision: str | None = "bf16"
+    logging: str = "tensorboard"
+    save_steps: int = 1000
+    eval_steps: int = 1000
+    log_interval: int = 10
+    save_total_limit: int = 3
+    resume_from: str | None = None
+    streaming: bool = False
+
+@dataclass
+class SFTConfig(TrainingStageMixin):
+    enabled: bool = False
+    loss_on_response_only: bool = True
+    packing: bool = True
+    gradient_accumulation_steps: int = 1
+    mixed_precision: str | None = None
+    logging: str = "tensorboard"
+    log_interval: int = 10
+    save_steps: int = 500
+    eval_steps: int = 500
+    warmup_steps: int = 0
+    max_steps: int = 100000
+
+@dataclass
+class DPOConfig(TrainingStageMixin):
+    enabled: bool = False
+    beta: float = 0.1
+    gradient_accumulation_steps: int = 1
+    mixed_precision: str | None = None
+    logging: str = "tensorboard"
+    log_interval: int = 10
+    save_steps: int = 500
+    eval_steps: int = 500
+    warmup_steps: int = 0
+    max_steps: int = 100000
+
+@dataclass
+class PPOConfig(TrainingStageMixin):
+    enabled: bool = False
+    kl_coef: float = 0.02
+    clip_range: float = 0.2
+    vf_coef: float = 0.5
+    max_gen_length: int = 256
+    gradient_accumulation_steps: int = 1
+    mixed_precision: str | None = None
+    logging: str = "tensorboard"
+    log_interval: int = 10
+    save_steps: int = 500
+    eval_steps: int = 500
+    warmup_steps: int = 0
+    max_steps: int = 100000
+
+@dataclass
+class GRPOConfig(TrainingStageMixin):
+    enabled: bool = False
+    group_size: int = 8
+    epsilon: float = 0.2
+    kl_coef: float = 0.01
+    max_gen_length: int = 1024
+    reward_fn: str = "exact_match"
+    reward_fn_config: dict | None = None
+    gradient_accumulation_steps: int = 1
+    mixed_precision: str | None = None
+    logging: str = "tensorboard"
+    log_interval: int = 10
+    save_steps: int = 500
+    eval_steps: int = 500
+    warmup_steps: int = 0
+    max_steps: int = 100000
+
+@dataclass
 class ModelConfig:
     d_model: int = 256
     num_layers: int = 4
@@ -72,6 +160,14 @@ class TrainConfig:
     grad_clip: float = 1.0
     scheduler: str = "cosine"
     early_stop_patience: int = 0
+    warmup_steps: int | None = None
+    max_steps: int | None = None
+    gradient_accumulation_steps: int | None = None
+    mixed_precision: str | None = None
+    save_steps: int | None = None
+    eval_steps: int | None = None
+    logging: str | None = None
+    resume_from: str | None = None
     loss: LossConfig = field(default_factory=LossConfig)
 
 @dataclass
@@ -80,6 +176,11 @@ class ExperimentConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     training: TrainConfig = field(default_factory=TrainConfig)
+    pretrain: PretrainConfig = field(default_factory=PretrainConfig)
+    sft: SFTConfig = field(default_factory=SFTConfig)
+    dpo: DPOConfig = field(default_factory=DPOConfig)
+    ppo: PPOConfig = field(default_factory=PPOConfig)
+    grpo: GRPOConfig = field(default_factory=GRPOConfig)
     seed: int = 42
 
 
@@ -96,6 +197,22 @@ def deep_merge(base: dict, override: dict) -> dict:
         else:
             merged[key] = copy.deepcopy(value)
     return merged
+
+
+def _coerce(value, target_type):
+    if target_type is float and isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return value
+    if target_type is int and isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return value
+    if target_type in (float, int) and isinstance(value, bool):
+        return int(value) if target_type is int else float(value)
+    return value
 
 
 def dict_to_dataclass(dc_type, data: dict):
@@ -117,7 +234,7 @@ def dict_to_dataclass(dc_type, data: dict):
                 else:
                     kwargs[key] = value
             else:
-                kwargs[key] = value
+                kwargs[key] = _coerce(value, ft)
     return dc_type(**kwargs)
 
 
@@ -157,6 +274,15 @@ def parse_cli_overrides(args: list[str]) -> dict:
         except Exception:
             d[parts[-1]] = value
     return result
+
+
+def make_run_name(cfg, prefix="", timestamp=None):
+    from datetime import datetime
+    arch = f"{cfg.model.attention.type}_{cfg.model.ffn.type}_{cfg.model.position.type}"
+    dims = f"d{cfg.model.d_model}l{cfg.model.num_layers}"
+    ts = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
+    parts = [p for p in [prefix, arch, dims, ts] if p]
+    return "_".join(parts)
 
 
 def flatten_config(cfg: ExperimentConfig, prefix="") -> dict[str, Any]:

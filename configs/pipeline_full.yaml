@@ -1,0 +1,14 @@
+name: full_pipeline
+stages:
+  - name: "Pre-training (TinyStories)"
+    command: pretrain
+    config: configs/pretrain_tinystories.yaml
+  - name: "SFT (Alpaca)"
+    command: sft
+    config: configs/sft_alpaca.yaml
+  - name: "DPO (UltraFeedback)"
+    command: dpo
+    config: configs/dpo_ultrafeedback.yaml
+  - name: "GRPO (GSM8K Reasoning)"
+    command: grpo
+    config: configs/grpo_gsm8k.yaml

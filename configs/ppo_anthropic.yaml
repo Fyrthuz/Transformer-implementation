@@ -1,0 +1,29 @@
+name: ppo_alignment
+model:
+  d_model: 384
+  num_layers: 6
+  dropout: 0.1
+  attention:
+    type: mha
+    num_heads: 6
+  ffn:
+    type: swiglu
+    d_ff: 1024
+  position:
+    type: rope
+dataset:
+  name: hh_rlhf
+  vocab_size: 16000
+  max_seq_len: 512
+ppo:
+  enabled: true
+  kl_coef: 0.02
+  clip_range: 0.2
+  vf_coef: 0.5
+  max_gen_length: 256
+training:
+  batch_size: 8
+  learning_rate: 0.000001
+  max_steps: 10000
+  mixed_precision: bf16
+seed: 42

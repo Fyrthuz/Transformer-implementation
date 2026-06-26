@@ -1,0 +1,39 @@
+name: math_grpo
+model:
+  d_model: 256
+  num_layers: 6
+  dropout: 0.1
+  attention:
+    type: mha
+    num_heads: 4
+  ffn:
+    type: swiglu
+    d_ff: 768
+  position:
+    type: none
+dataset:
+  name: gsm8k
+  tokenization: bpe
+  vocab_size: 16000
+  max_seq_len: 1024
+grpo:
+  enabled: true
+  group_size: 4
+  epsilon: 0.2
+  kl_coef: 0.01
+  max_gen_length: 1024
+  reward_fn: exact_match
+  logging: tensorboard
+  log_interval: 10
+  save_steps: 1000
+  eval_steps: 500
+  gradient_accumulation_steps: 2
+training:
+  batch_size: 4
+  learning_rate: 0.000001
+  weight_decay: 0.0
+  warmup_steps: 50
+  max_steps: 10000
+  scheduler: warmup_cosine
+  mixed_precision: bf16
+seed: 42

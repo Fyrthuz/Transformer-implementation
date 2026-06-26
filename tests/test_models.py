@@ -1,11 +1,6 @@
-#!/usr/bin/env python3
 """Test all attention × FFN × position combinations for model creation and training."""
-import sys
-import os
 import time
 import traceback
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import torch
 from transformer_impl.config import config_from_cli
@@ -17,19 +12,12 @@ from transformer_impl.ffn import FFN_REGISTRY
 from transformer_impl.position import POSITION_REGISTRY
 
 
-PASS = "✓"
-FAIL = "✗"
-SKIP = "—"
-
-results = []
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"Device: {device}")
-print(f"{'='*80}")
-
 def test_combinations():
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     d_model = 64
     num_layers = 2
     d_ff = 128
+    results = []
 
     for attn_name in sorted(ATTENTION_REGISTRY.keys()):
         for ffn_name in sorted(FFN_REGISTRY.keys()):
@@ -95,34 +83,15 @@ def test_combinations():
 
                     elapsed = time.time() - start
                     results.append((True, label, params, loss, ppl, elapsed))
-                    print(f"  {PASS} {label:35s} | params={params/1e3:.1f}K | loss={loss:.4f} | ppl={ppl:.1f} | {elapsed:.1f}s")
+                    print(f"  PASS {label:35s} | params={params/1e3:.1f}K | loss={loss:.4f} | ppl={ppl:.1f} | {elapsed:.1f}s")
 
                 except Exception as e:
                     elapsed = time.time() - start
                     results.append((False, label, 0, 0, 0, elapsed))
-                    print(f"  {FAIL} {label:35s} | {type(e).__name__}: {e}")
+                    print(f"  FAIL {label:35s} | {type(e).__name__}: {e}")
                     traceback.print_exc()
                     print()
 
 
 if __name__ == "__main__":
     test_combinations()
-
-    print(f"\n{'='*80}")
-    print("RESULTS SUMMARY")
-    print(f"{'='*80}")
-    total = len(results)
-    passed = sum(1 for r in results if r[0])
-    failed = total - passed
-    print(f"Total: {total} | Passed: {passed} | Failed: {failed}")
-    print()
-
-    if failed > 0:
-        print("FAILED:")
-        for ok, label, params, loss, ppl, elapsed in results:
-            if not ok:
-                print(f"  {FAIL} {label}")
-    else:
-        print("All models created and trained successfully!")
-
-    sys.exit(1 if failed > 0 else 0)

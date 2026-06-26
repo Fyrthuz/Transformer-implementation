@@ -22,6 +22,14 @@ class SSMBlock(torch.nn.Module):
         self.dt = torch.nn.Parameter(torch.log(torch.ones(d_model) * 0.001))
 
     def forward(self, x, mask=None):
+        if self.training:
+            return torch.utils.checkpoint.checkpoint(
+                self._forward_impl, x, mask,
+                use_reentrant=False, preserve_rng_state=False,
+            )
+        return self._forward_impl(x, mask)
+
+    def _forward_impl(self, x, mask=None):
         B, T, D = x.shape
         inp = self.in_proj(x)
         x_proj, z = inp.chunk(2, dim=-1)

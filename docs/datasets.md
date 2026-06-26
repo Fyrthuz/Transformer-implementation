@@ -27,6 +27,8 @@ class BaseDatasetPreparer:
 | `wikitext2` | `WikiText2Preparer` | WikiText-2 (pytorch/examples) |
 | `wikitext103` | `WikiText103Preparer` | WikiText-103 (pytorch/examples) |
 
+> Para datasets open-source con auto-download (TinyStories, Alpaca, UltraFeedback, GSM8K, etc.), ver [`datasets_new.md`](datasets_new.md).
+
 ## Data Pipeline
 
 ```

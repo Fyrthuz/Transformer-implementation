@@ -1,0 +1,30 @@
+name: oasst_sft
+model:
+  d_model: 384
+  num_layers: 6
+  dropout: 0.1
+  attention:
+    type: mha
+    num_heads: 6
+  ffn:
+    type: swiglu
+    d_ff: 1024
+  position:
+    type: rope
+dataset:
+  name: oasst1
+  tokenization: bpe
+  vocab_size: 16000
+  max_seq_len: 512
+sft:
+  enabled: true
+  loss_on_response_only: true
+  packing: true
+training:
+  batch_size: 16
+  learning_rate: 0.00002
+  weight_decay: 0.0
+  max_steps: 5000
+  scheduler: warmup_cosine
+  mixed_precision: bf16
+seed: 42

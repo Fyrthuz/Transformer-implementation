@@ -102,13 +102,15 @@ cfg = config_from_cli("configs/mha_rope.yaml", {"model.attention.type": "gqa"})
 
 ## CLI Entry Points
 
-`run.py` provides four subcommands:
+`run.py` provides estos subcomandos:
 
 | Command | Description |
 |---------|-------------|
 | `train -c <yaml> [overrides...]` | Train a single model |
 | `generate -c <yaml> -m <model.pt> -p <prompt>` | Generate text |
 | `sweep -c <sweep.yaml>` | Grid search over hyperparameter combinations |
+| `pretrain / sft / dpo / ppo / grpo` | Etapas individuales del pipeline |
+| `pipeline -c <pipeline.yaml>` | Pipeline multi-etapa completo |
 | `list` | List all registered components |
 
-`run_experiment.sh` wraps `run.py` and automatically starts TensorBoard on port 6006 before training/sweep commands. Set `NO_TENSORBOARD=1` to skip.
+`run_experiment.sh` wraps `run.py` and automatically starts TensorBoard on port 6006 before training/sweep/pipeline commands. Set `NO_TENSORBOARD=1` to skip.

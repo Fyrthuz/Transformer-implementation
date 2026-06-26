@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from transformer_impl.config import (
-    config_from_cli, parse_cli_overrides, ExperimentConfig,
+    config_from_cli, parse_cli_overrides, make_run_name, ExperimentConfig,
     AttentionConfig, FFNConfig, PositionConfig, ModelConfig, TrainConfig, DatasetConfig, LossConfig,
 )
 from transformer_impl.model import Transformer
@@ -21,6 +21,8 @@ from transformer_impl.attention import ATTENTION_REGISTRY
 from transformer_impl.ffn import FFN_REGISTRY
 from transformer_impl.position import POSITION_REGISTRY
 from transformer_impl.datasets import DATASET_REGISTRY
+
+from transformer_impl.trainers import PreTrainer, SFTTrainer, DPOTrainer, PPOTrainer, GRPOTrainer
 
 
 def initialize_weights(m, d_model):
@@ -40,6 +42,8 @@ def cmd_train(args):
     cfg = config_from_cli(args.config, overrides)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.manual_seed(cfg.seed)
+    if 'name' not in overrides:
+        cfg.name = make_run_name(cfg, prefix="train")
 
     print(f"\n{'='*60}")
     print(f"Experiment: {cfg.name}")
@@ -86,6 +90,7 @@ def cmd_train(args):
     print(f"\n{'='*60}")
     print(f"Experiment '{cfg.name}' completed!")
     print(f"Best Test Loss: {best_loss:.4f} | Best Perplexity: {best_ppl:.2f}")
+    print(f"Logs: runs/")
     print(f"{'='*60}\n")
 
 
@@ -106,12 +111,8 @@ def cmd_generate(args):
 
     model = Transformer(cfg, dataset_output.vocab_size).to(device)
     if args.model_path and os.path.exists(args.model_path):
-        checkpoint = torch.load(args.model_path, map_location=device)
-        if 'model_state_dict' in checkpoint:
-            model.load_state_dict(checkpoint['model_state_dict'])
-        else:
-            model.load_state_dict(checkpoint)
-        print(f"Loaded model from {args.model_path}")
+        from transformer_impl.utils.checkpointing import load_checkpoint_with_adaptation
+        load_checkpoint_with_adaptation(args.model_path, model, device)
     else:
         print("Warning: no model path provided or file not found. Using random weights.")
 
@@ -123,6 +124,206 @@ def cmd_generate(args):
         temperature=args.temperature,
         device=device,
     )
+
+
+def _setup_model_and_data(args, cfg, device):
+    dataset_preparer_cls = get_dataset_preparer(cfg.dataset.name)
+    dataset_cfg = {
+        'tokenization': cfg.dataset.tokenization,
+        'max_seq_len': cfg.dataset.max_seq_len,
+        'train_stride': cfg.dataset.train_stride,
+        'vocab_size': cfg.dataset.vocab_size,
+        'cache_dir': cfg.dataset.cache_dir,
+        'max_train_chunks': cfg.dataset.max_train_chunks,
+        'max_test_chunks': cfg.dataset.max_test_chunks,
+    }
+    dataset_output = dataset_preparer_cls().prepare(dataset_cfg)
+    model = Transformer(cfg, dataset_output.vocab_size).to(device)
+    model.apply(lambda m: initialize_weights(m, cfg.model.d_model))
+    return model, dataset_output
+
+
+def _load_model(path, model, device):
+    if path and os.path.exists(path):
+        from transformer_impl.utils.checkpointing import load_checkpoint_with_adaptation
+        load_checkpoint_with_adaptation(path, model, device)
+    return model
+
+
+def cmd_stage_train(stage_name, TrainerClass, args):
+    overrides = parse_cli_overrides(args.overrides)
+    cfg = config_from_cli(args.config, overrides)
+    setattr(getattr(cfg, stage_name, cfg.training), 'enabled', True)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    torch.manual_seed(cfg.seed)
+
+    if 'name' not in overrides:
+        cfg.name = make_run_name(cfg, prefix=stage_name)
+
+    print(f"\n{'='*60}")
+    print(f"Stage: {stage_name.upper()} — {cfg.name}")
+    print(f"Attention: {cfg.model.attention.type} | FFN: {cfg.model.ffn.type} | Position: {cfg.model.position.type}")
+    print(f"Dataset: {cfg.dataset.name}")
+    print(f"{'='*60}\n")
+
+    model, dataset_output = _setup_model_and_data(args, cfg, device)
+    if args.model_path:
+        model = _load_model(args.model_path, model, device)
+
+    trainer = TrainerClass(cfg, model, dataset_output, device)
+    trainer.train()
+    print(f"\nVer resultados en TensorBoard:")
+    print(f"  tensorboard --logdir runs/")
+
+
+def cmd_pretrain(args):
+    from transformer_impl.trainers import PreTrainer
+    cmd_stage_train('pretrain', PreTrainer, args)
+
+
+def cmd_sft(args):
+    from transformer_impl.trainers import SFTTrainer
+    cmd_stage_train('sft', SFTTrainer, args)
+
+
+def cmd_dpo(args):
+    from transformer_impl.trainers import DPOTrainer
+    cmd_stage_train('dpo', DPOTrainer, args)
+
+
+def cmd_ppo(args):
+    from transformer_impl.trainers import PPOTrainer
+    cmd_stage_train('ppo', PPOTrainer, args)
+
+
+def cmd_grpo(args):
+    from transformer_impl.trainers import GRPOTrainer
+    cmd_stage_train('grpo', GRPOTrainer, args)
+
+
+def cmd_pipeline(args):
+    import yaml
+    with open(args.config) as f:
+        pipeline_cfg = yaml.safe_load(f)
+
+    stages = pipeline_cfg.get('stages', [])
+    if not stages:
+        print("No stages defined in pipeline config")
+        return
+
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    pipeline_name = pipeline_cfg.get('name', 'pipeline')
+    print(f"\n{'='*60}")
+    print(f"Pipeline: {pipeline_name} [{timestamp}]")
+    print(f"Stages: {len(stages)}")
+    print(f"{'='*60}\n")
+
+    model = None
+    checkpoint_path = None
+    vocab_size = None
+
+    for i, stage in enumerate(stages):
+        stage_name = stage.get('name', f"Stage {i+1}")
+        command = stage.get('command', '')
+        config_path = stage.get('config', '')
+
+        if not command or not config_path:
+            print(f"  [SKIP] {stage_name}: missing command or config")
+            continue
+
+        print(f"\n{'='*60}")
+        print(f"[{i+1}/{len(stages)}] {stage_name} ({command.upper()})")
+        print(f"{'='*60}")
+
+        ckpt = None
+        if checkpoint_path and os.path.exists(checkpoint_path):
+            ckpt = checkpoint_path
+        elif args.model_path and os.path.exists(args.model_path):
+            ckpt = args.model_path
+
+        stage_args = type('Args', (), {
+            'config': config_path,
+            'model_path': ckpt,
+            'overrides': args.overrides,
+        })()
+
+        overrides = parse_cli_overrides(stage_args.overrides)
+        cfg = config_from_cli(stage_args.config, overrides)
+        setattr(getattr(cfg, command, cfg.training), 'enabled', True)
+        if 'name' not in overrides:
+            cfg.name = make_run_name(cfg, prefix=f"{pipeline_name}_{command}", timestamp=timestamp)
+        else:
+            cfg.name = overrides['name']
+
+        torch.manual_seed(cfg.seed)
+
+        dataset_preparer_cls = get_dataset_preparer(cfg.dataset.name)
+        dataset_cfg = {
+            'tokenization': cfg.dataset.tokenization,
+            'max_seq_len': cfg.dataset.max_seq_len,
+            'train_stride': cfg.dataset.train_stride,
+            'vocab_size': cfg.dataset.vocab_size,
+            'cache_dir': cfg.dataset.cache_dir,
+            'max_train_chunks': cfg.dataset.max_train_chunks,
+            'max_test_chunks': cfg.dataset.max_test_chunks,
+        }
+        dataset_output = dataset_preparer_cls().prepare(dataset_cfg)
+
+        if model is None:
+            model = Transformer(cfg, dataset_output.vocab_size).to(device)
+            model.apply(lambda m: initialize_weights(m, cfg.model.d_model))
+        else:
+            model = model.to(device)
+        if vocab_size is not None and vocab_size != dataset_output.vocab_size:
+            model.output_layer = torch.nn.Linear(model.cfg.model.d_model, dataset_output.vocab_size).to(device)
+            model.vocab_size = dataset_output.vocab_size
+            print(f"  Resized output layer to vocab_size={dataset_output.vocab_size}")
+
+        if stage_args.model_path and model is not None:
+            from transformer_impl.utils.checkpointing import load_checkpoint_with_adaptation
+            load_checkpoint_with_adaptation(stage_args.model_path, model, device)
+
+        vocab_size = dataset_output.vocab_size
+        trainer_map = {
+            'pretrain': PreTrainer,
+            'sft': SFTTrainer,
+            'dpo': DPOTrainer,
+            'ppo': PPOTrainer,
+            'grpo': GRPOTrainer,
+        }
+
+        TrainerClass = trainer_map.get(command)
+        if TrainerClass is None:
+            print(f"  [ERROR] Unknown command: {command}")
+            continue
+
+        try:
+            trainer = TrainerClass(cfg, model, dataset_output, device)
+            trainer.train()
+        except Exception as e:
+            print(f"\n  [ERROR] Stage '{stage_name}' failed: {e}")
+            import traceback
+            traceback.print_exc()
+            if 'trainer' in dir():
+                trainer.cleanup()
+                del trainer
+            torch.cuda.empty_cache()
+            continue
+
+        trainer.cleanup()
+        del trainer
+        torch.cuda.empty_cache()
+
+        checkpoint_path = f'runs/{cfg.name}/checkpoints/best_model.pt'
+
+    print(f"\n{'='*60}")
+    print(f"Pipeline '{pipeline_name}' completed! {len(stages)} stages executed.")
+    print(f"{'='*60}")
+    print(f"\nVer resultados en TensorBoard:")
+    print(f"  tensorboard --logdir runs/")
+    print()
 
 
 def cmd_sweep(args):
@@ -281,6 +482,13 @@ def main():
     parser = argparse.ArgumentParser(description="Transformer Implementation - Experiment Runner")
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
+    def _add_stage_parser(name, help_text):
+        p = subparsers.add_parser(name, help=help_text)
+        p.add_argument('-c', '--config', type=str, default=None, help='Path to YAML config file')
+        p.add_argument('-m', '--model-path', type=str, default=None, help='Path to pretrained model checkpoint')
+        p.add_argument('overrides', nargs='*', help='Config overrides: key=value')
+        return p
+
     train_parser = subparsers.add_parser('train', help='Train a model')
     train_parser.add_argument('-c', '--config', type=str, default=None, help='Path to YAML config file')
     train_parser.add_argument('overrides', nargs='*', help='Config overrides: key=value')
@@ -293,6 +501,17 @@ def main():
     gen_parser.add_argument('-n', '--max-chars', type=int, default=500, help='Max characters to generate')
     gen_parser.add_argument('overrides', nargs='*', help='Config overrides: key=value')
 
+    _add_stage_parser('pretrain', 'Pre-training from scratch on large corpus')
+    _add_stage_parser('sft', 'Supervised fine-tuning on instruction data')
+    _add_stage_parser('dpo', 'Direct Preference Optimization alignment')
+    _add_stage_parser('ppo', 'PPO alignment with reward model')
+    _add_stage_parser('grpo', 'Group Relative Policy Optimization for reasoning')
+
+    pipeline_parser = subparsers.add_parser('pipeline', help='Run multi-stage training pipeline')
+    pipeline_parser.add_argument('-c', '--config', type=str, required=True, help='Path to pipeline YAML config')
+    pipeline_parser.add_argument('-m', '--model-path', type=str, default=None, help='Path to initial model checkpoint')
+    pipeline_parser.add_argument('overrides', nargs='*', help='Config overrides: key=value')
+
     sweep_parser = subparsers.add_parser('sweep', help='Run grid search sweep')
     sweep_parser.add_argument('-c', '--config', type=str, required=True, help='Path to sweep YAML config')
 
@@ -304,6 +523,18 @@ def main():
         cmd_train(args)
     elif args.command == 'generate':
         cmd_generate(args)
+    elif args.command == 'pretrain':
+        cmd_pretrain(args)
+    elif args.command == 'sft':
+        cmd_sft(args)
+    elif args.command == 'dpo':
+        cmd_dpo(args)
+    elif args.command == 'ppo':
+        cmd_ppo(args)
+    elif args.command == 'grpo':
+        cmd_grpo(args)
+    elif args.command == 'pipeline':
+        cmd_pipeline(args)
     elif args.command == 'sweep':
         cmd_sweep(args)
     elif args.command == 'list':

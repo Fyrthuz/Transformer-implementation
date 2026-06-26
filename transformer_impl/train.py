@@ -3,10 +3,11 @@ import math
 import time
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
-from torch.utils.tensorboard import SummaryWriter
-from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from transformer_impl.config import ExperimentConfig
+from transformer_impl.utils.lr_scheduler import get_scheduler
+from transformer_impl.utils.checkpointing import save_checkpoint, load_checkpoint, resume_training
+from transformer_impl.utils.logging import Logger
 
 
 class TextDataset(Dataset):
@@ -57,6 +58,11 @@ def build_loss_fn(cfg, pad_token_id):
         return nn.CrossEntropyLoss(ignore_index=ignore_idx)
 
 
+def _resolve_accum(cfg):
+    val = getattr(cfg, 'gradient_accumulation_steps', None)
+    return val if val is not None else 1
+
+
 def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writer=None):
     cfg = model_cfg.training
     pad_id = dataset_output.pad_token_id
@@ -73,22 +79,39 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
         lr=cfg.learning_rate,
         weight_decay=cfg.weight_decay,
     )
+
     loss_fn = build_loss_fn(model_cfg, pad_id)
 
-    if cfg.scheduler == "cosine":
-        scheduler = CosineAnnealingLR(optimizer, T_max=cfg.num_epochs)
-    else:
-        from torch.optim.lr_scheduler import LambdaLR
-        scheduler = LambdaLR(optimizer, lr_lambda=lambda e: 1.0)
+    warmup_steps = cfg.warmup_steps if cfg.warmup_steps is not None else 0
+    max_steps = cfg.max_steps or (cfg.num_epochs * len(train_loader))
+    steps_per_epoch = len(train_loader)
+    total_steps = max_steps
+    accum_steps = _resolve_accum(cfg)
+    mixed_precision = cfg.mixed_precision
+    save_steps = cfg.save_steps if cfg.save_steps is not None else 0
+    eval_steps = cfg.eval_steps if cfg.eval_steps is not None else 0
+    log_type = cfg.logging if cfg.logging is not None else "tensorboard"
+    resume_from = cfg.resume_from
+
+    scheduler = get_scheduler(cfg.scheduler, optimizer, warmup_steps, total_steps, cfg.num_epochs, steps_per_epoch)
 
     own_writer = writer is None
     if own_writer:
-        writer = SummaryWriter(f'runs/{model_cfg.name}')
+        writer_obj = Logger(log_dir=f'runs/{model_cfg.name}', log_type=log_type)
+    else:
+        writer_obj = Logger(log_dir=None, log_type="tensorboard")
+        writer_obj.writer = writer
 
     global_step = 0
+    start_epoch = 0
     best_test_loss = float('inf')
     epochs_no_improve = 0
     patience = cfg.early_stop_patience
+
+    scaler = torch.amp.GradScaler('cuda') if mixed_precision and device.type == 'cuda' else None
+
+    if resume_from:
+        start_epoch, global_step, _ = resume_training(resume_from, model, optimizer, scheduler, device)
 
     print(f"Device: {device}")
     print(f"Model params: {sum(p.numel() for p in model.parameters()):,}")
@@ -97,11 +120,13 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
     print(f"Attention: {model_cfg.model.attention.type}")
     print(f"FFN: {model_cfg.model.ffn.type}")
     print(f"Position: {model_cfg.model.position.type}")
+    if accum_steps > 1:
+        print(f"Gradient accumulation: {accum_steps} steps")
+    if scaler:
+        print(f"Mixed precision: {mixed_precision}")
 
     experiment_start_time = time.time()
     total_train_time = 0.0
-    total_inference_time = 0.0
-    total_inference_samples = 0
 
     hparam_dict = {
         'attention': model_cfg.model.attention.type,
@@ -119,44 +144,72 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
         'loss_type': cfg.loss.type,
     }
 
-    for epoch in range(cfg.num_epochs):
-        model.train()
-        total_train_loss = 0
-        epoch_start = time.time()
+    model.train()
+    optimizer.zero_grad()
 
-        for batch in train_loader:
-            optimizer.zero_grad()
+    for epoch in range(start_epoch, cfg.num_epochs):
+        epoch_start = time.time()
+        train_loss_sum = 0
+        train_batches = 0
+
+        for batch_idx, batch in enumerate(train_loader):
+            if global_step >= total_steps:
+                break
+
             batch = batch.to(device)
             inputs = batch[:, :-1]
             targets = batch[:, 1:]
             mask = model.generate_causal_mask(inputs.size(1), device)
 
-            logits = model(inputs, mask=mask)
-            main_loss = loss_fn(logits.reshape(-1, vocab_size), targets.reshape(-1))
-            aux_losses = model.auxiliary_losses()
-            total_loss = main_loss + model_cfg.training.loss.moe_load_balance_coef * sum(aux_losses)
+            with torch.amp.autocast('cuda', enabled=scaler is not None):
+                logits = model(inputs, mask=mask)
+                main_loss = loss_fn(logits.reshape(-1, vocab_size), targets.reshape(-1))
+                aux_losses = model.auxiliary_losses()
+                total_loss = main_loss + model_cfg.training.loss.moe_load_balance_coef * sum(aux_losses)
+                total_loss = total_loss / accum_steps
 
-            total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
-            optimizer.step()
+            if scaler:
+                scaler.scale(total_loss).backward()
+            else:
+                total_loss.backward()
 
-            total_train_loss += main_loss.item()
-            writer.add_scalar('Train/Loss_step', main_loss.item(), global_step)
-            global_step += 1
+            train_loss_sum += main_loss.item()
+            train_batches += 1
 
-        scheduler.step()
+            if (batch_idx + 1) % accum_steps == 0:
+                if scaler:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
+                    optimizer.step()
+                optimizer.zero_grad()
+                scheduler.step()
+
+                writer_obj.log_scalar('Train/Loss_step', main_loss.item(), global_step)
+                global_step += 1
+
+                if save_steps and global_step % save_steps == 0:
+                    ckpt_path = f'checkpoint_{model_cfg.name}_step{global_step}.pt'
+                    save_checkpoint(ckpt_path, model, optimizer, scheduler, epoch, global_step,
+                                    {'train_loss': train_loss_sum / max(train_batches, 1)},
+                                    hparam_dict)
+                    print(f"  --> Saved checkpoint: {ckpt_path}")
+
+                if eval_steps and global_step % eval_steps == 0:
+                    _run_eval(model, test_loader, loss_fn, vocab_size, device, model_cfg, writer_obj, epoch, dataset_output)
+
         epoch_time = time.time() - epoch_start
         total_train_time += epoch_time
-        avg_train_loss = total_train_loss / len(train_loader)
-        train_ppl = math.exp(avg_train_loss)
+        avg_train_loss = train_loss_sum / max(train_batches, 1)
+        train_ppl = math.exp(avg_train_loss) if avg_train_loss < 50 else float('inf')
 
         model.eval()
         total_test_loss = 0
-        infer_start = time.time()
-        infer_batch_count = 0
-
         with torch.no_grad():
-            for i, t_batch in enumerate(test_loader):
+            for t_batch in test_loader:
                 t_batch = t_batch.to(device)
                 t_inputs = t_batch[:, :-1]
                 t_targets = t_batch[:, 1:]
@@ -165,28 +218,8 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
                 t_loss = loss_fn(t_output.reshape(-1, vocab_size), t_targets.reshape(-1))
                 total_test_loss += t_loss.item()
 
-                infer_batch_count += 1
-
-                if i == 0 and epoch % 5 == 0:
-                    preds = t_output.argmax(dim=-1)
-                    clean_input = [tok for tok in t_inputs[0].tolist() if tok != pad_id]
-                    clean_target = [tok for tok in t_targets[0].tolist() if tok != pad_id]
-                    clean_preds = preds[0].tolist()[:len(clean_target)]
-                    tokenizer = dataset_output.tokenizer
-                    test_example = (
-                        f"**Input**: {tokenizer.decode(clean_input)}  \n"
-                        f"**Target**: {tokenizer.decode(clean_target)}  \n"
-                        f"**Predicted**: {tokenizer.decode(clean_preds)}"
-                    )
-                    writer.add_text('Samples/Prediction_Test', test_example, epoch)
-
-        infer_time = time.time() - infer_start
-        total_inference_time += infer_time
-        total_inference_samples += infer_batch_count * t_batch.size(0)
-        infer_time_per_sample = infer_time / max(infer_batch_count * t_batch.size(0), 1) * 1000
-
         avg_test_loss = total_test_loss / len(test_loader)
-        test_ppl = math.exp(avg_test_loss)
+        test_ppl = math.exp(avg_test_loss) if avg_test_loss < 50 else float('inf')
 
         if avg_test_loss < best_test_loss:
             best_test_loss = avg_test_loss
@@ -209,24 +242,23 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
         elif patience > 0:
             epochs_no_improve += 1
             if epochs_no_improve >= patience:
-                print(f"  --> Early stopping after {epoch+1} epochs (no improvement for {patience} epochs)")
+                print(f"  --> Early stopping after {epoch+1} epochs")
                 break
 
-        writer.add_scalar('Train/Loss', avg_train_loss, epoch)
-        writer.add_scalar('Test/Loss', avg_test_loss, epoch)
-        writer.add_scalar('Train/Perplexity', train_ppl, epoch)
-        writer.add_scalar('Test/Perplexity', test_ppl, epoch)
-        writer.add_scalar('Params/Learning_Rate', scheduler.get_last_lr()[0], epoch)
-        writer.add_scalar('Time/Epoch_seconds', epoch_time, epoch)
-        writer.add_scalar('Time/Inference_ms_per_sample', infer_time_per_sample, epoch)
+        writer_obj.log_scalar('Train/Loss', avg_train_loss, epoch)
+        writer_obj.log_scalar('Test/Loss', avg_test_loss, epoch)
+        writer_obj.log_scalar('Train/Perplexity', train_ppl, epoch)
+        writer_obj.log_scalar('Test/Perplexity', test_ppl, epoch)
+        writer_obj.log_scalar('Params/Learning_Rate', scheduler.get_last_lr()[0], epoch)
+        writer_obj.log_scalar('Time/Epoch_seconds', epoch_time, epoch)
 
         if device.type == 'cuda':
             mem_alloc = torch.cuda.memory_allocated(device) / 1024**3
             mem_reserved = torch.cuda.memory_reserved(device) / 1024**3
-            writer.add_scalar('GPU/Memory_allocated_GB', mem_alloc, epoch)
-            writer.add_scalar('GPU/Memory_reserved_GB', mem_reserved, epoch)
+            writer_obj.log_scalar('GPU/Memory_allocated_GB', mem_alloc, epoch)
+            writer_obj.log_scalar('GPU/Memory_reserved_GB', mem_reserved, epoch)
 
-        writer.flush()
+        writer_obj.flush()
 
         timing_str = f" | Time: {epoch_time:.1f}s"
         if device.type == 'cuda':
@@ -239,17 +271,31 @@ def train_model(model, model_cfg: ExperimentConfig, dataset_output, device, writ
               f"LR: {scheduler.get_last_lr()[0]:.6f}{timing_str}")
 
     total_exp_time = time.time() - experiment_start_time
-    avg_infer_per_sample = (total_inference_time / total_inference_samples * 1000) if total_inference_samples > 0 else 0
+    print(f"\n  --> Total time: {total_exp_time:.1f}s")
 
-    print(f"\n  --> Total time: {total_exp_time:.1f}s | Train: {total_train_time:.1f}s | Inference: {total_inference_time:.1f}s")
-    print(f"  --> Avg inference: {avg_infer_per_sample:.2f}ms/sample")
-
-    writer.add_scalar('Time/Total_experiment_seconds', total_exp_time, 0)
-    writer.add_scalar('Time/Avg_inference_ms_per_sample', avg_infer_per_sample, 0)
-
-    writer.add_hparams(hparam_dict, {'hparam/test_loss': best_test_loss, 'hparam/test_perplexity': math.exp(best_test_loss)})
+    writer_obj.log_scalar('Time/Total_experiment_seconds', total_exp_time, 0)
+    writer_obj.log_hparams(hparam_dict, {'hparam/test_loss': best_test_loss, 'hparam/test_perplexity': math.exp(best_test_loss) if best_test_loss < 50 else 0})
 
     if own_writer:
-        writer.close()
+        writer_obj.close()
 
-    return best_test_loss, math.exp(best_test_loss)
+    return best_test_loss, math.exp(best_test_loss) if best_test_loss < 50 else float('inf')
+
+
+def _run_eval(model, test_loader, loss_fn, vocab_size, device, model_cfg, writer_obj, epoch, dataset_output):
+    model.eval()
+    total_loss = 0
+    with torch.no_grad():
+        for t_batch in test_loader:
+            t_batch = t_batch.to(device)
+            t_inputs = t_batch[:, :-1]
+            t_targets = t_batch[:, 1:]
+            t_mask = model.generate_causal_mask(t_inputs.size(1), device)
+            t_output = model(t_inputs, mask=t_mask)
+            t_loss = loss_fn(t_output.reshape(-1, vocab_size), t_targets.reshape(-1))
+            total_loss += t_loss.item()
+    avg = total_loss / len(test_loader)
+    ppl = math.exp(avg) if avg < 50 else float('inf')
+    writer_obj.log_scalar('Eval/Loss', avg, epoch)
+    writer_obj.log_scalar('Eval/Perplexity', ppl, epoch)
+    model.train()

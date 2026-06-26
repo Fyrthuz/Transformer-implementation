@@ -1,13 +1,13 @@
-# Transformer Experiment
+# Transformer Experiment — LLM Training Pipeline
 
-Modular **decoder-only Transformer** (GPT-style) with 9 attention mechanisms, 4 FFN variants, 3 positional encodings, CLI, and grid search with TensorBoard logging.
+Modular **decoder-only Transformer** (GPT-style) with 9 attention mechanisms, 4 FFN variants, 3 positional encodings, CLI, grid search, and **complete LLM training pipeline**: pre-training, SFT, DPO, PPO, and GRPO.
 
 ## Quick Start
 
 ```bash
 uv sync                        # or: pip install -r requirements.txt
 ./run_experiment.sh list       # disponibles
-./run_experiment.sh train -c configs/mamba_swiglu_none.yaml
+./run_experiment.sh train -c configs/pretrain_tinystories.yaml
 ./run_experiment.sh sweep -c configs/sweep_shakespeare.yaml   # 108 combos
 ```
 
@@ -15,12 +15,102 @@ uv sync                        # or: pip install -r requirements.txt
 
 | Subcommand | Description |
 |------------|-------------|
-| `train -c <yaml> [overrides...]` | Train model |
+| `train -c <yaml> [overrides...]` | Train model (original) |
 | `generate -c <yaml> -m <model.pt> -p <prompt>` | Generate text |
 | `sweep -c <sweep.yaml>` | Grid search |
+| `test [pytest_args...]` | Run 50 tests with pytest |
 | `list` | List components |
+| `pretrain -c <yaml>` | Pre-training from scratch (MHA+SwiGLU default) |
+| `sft -c <yaml> -m <model.pt>` | Supervised fine-tuning |
+| `dpo -c <yaml> -m <model.pt>` | Direct Preference Optimization |
+| `ppo -c <yaml> -m <model.pt>` | PPO alignment |
+| `grpo -c <yaml> -m <model.pt>` | GRPO reasoning fine-tuning |
+| `pipeline -c <pipeline.yaml>` | Multi-stage pipeline (encadena stages, sin grad accum) |
 
-CLI overrides: `python run.py train model.attention.type=mamba model.ffn.type=swiglu`
+CLI overrides: `python run.py train model.attention.type=mha model.ffn.type=swiglu`
+
+## Pipeline Completo
+
+```
+Pretraining ──► SFT ──► DPO/PPO ──► GRPO
+(from scratch)  (instruct)  (alignment)  (reasoning)
+```
+
+### Comando único
+
+```bash
+python run.py pipeline -c configs/pipeline_full.yaml \
+  model.d_model=256 model.num_layers=6 training.batch_size=32
+```
+
+Ejecuta **pretrain → SFT → DPO** (o + GRPO) secuencialmente, pasando el mejor checkpoint de cada etapa a la siguiente.
+
+```bash
+# 3 etapas (rápido, recomendado):
+./run_experiment.sh pipeline -c configs/pipeline_sft_dpo.yaml
+
+# 4 etapas (incluye GRPO, lento):
+./run_experiment.sh pipeline -c configs/pipeline_full.yaml
+```
+
+> **Arquitectura por defecto**: MHA + SwiGLU + sin posición (rápida, estable en memoria).  
+> **TensorBoard**: cada run tiene timestamp único en `runs/`. Los logs incluyen scalars (loss, LR, grad norm, perplexity), histogramas de gradientes, y ejemplos de texto generado.
+
+### Etapa por etapa
+
+```bash
+# 1. Pre-training
+python run.py pretrain -c configs/pretrain_tinystories.yaml
+
+# 2. SFT
+python run.py sft -c configs/sft_alpaca.yaml -m best_model.pt
+
+# 3. DPO Alignment
+python run.py dpo -c configs/dpo_ultrafeedback.yaml -m best_model.pt
+
+# 4. GRPO Reasoning
+python run.py grpo -c configs/grpo_gsm8k.yaml -m best_model.pt
+```
+
+## Fine-tuning con Configuración Diferente
+
+Puedes cargar un checkpoint entrenado con una arquitectura y fine-tunearlo con **otra distinta**:
+
+```bash
+# Pre-entrenar con modelo pequeño (6 layers, d_model=256)
+python run.py pretrain -c configs/pretrain_tinystories.yaml \
+  model.num_layers=6 model.d_model=256
+
+# SFT con modelo más grande, cargando checkpoint parcial
+python run.py sft -c configs/sft_alpaca.yaml \
+  model.num_layers=8 model.d_model=512 \
+  -m best_model.pt
+```
+
+El sistema adapta automáticamente:
+
+| Cambio | Comportamiento |
+|--------|----------------|
+| `vocab_size` diferente | Redimensiona embedding + output layer |
+| `num_layers` diferente | Carga capas comunes, resto aleatorio |
+| `d_model` / `num_heads` diferente | Omite capas incompatibles |
+
+## Datasets Open-Source (Auto-download)
+
+| Etapa | Dataset | Ejemplos | Licencia |
+|-------|---------|----------|----------|
+| Pre-training | TinyStories | 2.1M cuentos | CDLA-Sharing |
+| Pre-training | FineWeb | ~10B tokens sample | ODC-BY |
+| SFT | Alpaca Cleaned | 52K instruct | CC BY NC 4.0 |
+| SFT | OpenAssistant | 88K conv. | Apache 2.0 |
+| SFT | Dolly | 15K instruct | CC BY-SA 3.0 |
+| DPO/PPO | UltraFeedback | 61K pares | MIT |
+| DPO/PPO | HH-RLHF | 170K pares | MIT |
+| GRPO | GSM8K | 8.5K math | MIT |
+| GRPO | MATH | 12.5K math | MIT |
+| GRPO | MBPP | 974 code | CC BY 4.0 |
+
+Ver [`docs/datasets_new.md`](docs/datasets_new.md) para detalles completos.
 
 ## Results — TinyShakespeare Sweep (108 combos)
 
@@ -65,7 +155,7 @@ python run.py sweep -c configs/sweep_shakespeare.yaml
 | 29 | mha | moe | none | 15.80 | 175K |
 | 30 | mqa | swiglu | none | 15.83 | 79K |
 
-**Mamba + position=none** domina el top-12 completo. El ganador claro es **mamba + moe/swiglu + none**.
+**Mamba + position=none** domina el top-12 completo.
 
 ---
 
@@ -77,8 +167,16 @@ python run.py sweep -c configs/sweep_shakespeare.yaml
 | [Attention](docs/attention.md) | All 9 mechanisms: MHA, MQA, GQA, Linear, Window, Dilated, Global-Local, Mamba, SSM |
 | [FFN](docs/ffn.md) | All 4 variants: Standard, SwiGLU, Gated, Mixture-of-Experts |
 | [Position](docs/position.md) | Sinusoidal, RoPE, None |
-| [Datasets](docs/datasets.md) | TinyShakespeare, WikiText-2/103, tokenizers, chunk caching |
-| [Training](docs/training.md) | Training loop, losses, schedulers, TensorBoard, generation, sweep |
+| [Datasets](docs/datasets.md) | Legacy datasets, tokenizers, chunk caching |
+| [Training](docs/training.md) | Training loop, losses, schedulers, TensorBoard, generation, sweep, checkpoint adaptation |
+| [Pre-training](docs/pretraining.md) | Pre-training from scratch with large corpus |
+| [SFT](docs/sft.md) | Supervised fine-tuning with instruction data |
+| [DPO](docs/dpo.md) | Direct Preference Optimization alignment |
+| [PPO](docs/ppo.md) | PPO alignment with reward model |
+| [GRPO](docs/grpo.md) | GRPO reasoning fine-tuning |
+| [Datasets Catalog](docs/datasets_new.md) | All open-source datasets with auto-download |
+| [Training Pipeline](docs/training_pipeline.md) | Full LLM training pipeline overview |
+| [Future Work](docs/future_work.md) | Features not yet implemented |
 
 ## Regularization
 
@@ -95,7 +193,7 @@ python run.py sweep -c configs/sweep_shakespeare.yaml
 
 ## Config YAML
 
-See [configs/mamba_swiglu_none.yaml](configs/mamba_swiglu_none.yaml) or any file in [`configs/`](configs/). All fields overridable via CLI.
+See [configs/pretrain_tinystories.yaml](configs/pretrain_tinystories.yaml) or any file in [`configs/`](configs/). All fields overridable via CLI.
 
 ## Adding Components
 
