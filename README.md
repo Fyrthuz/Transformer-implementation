@@ -112,6 +112,33 @@ El sistema adapta automáticamente:
 
 Ver [`docs/datasets_new.md`](docs/datasets_new.md) para detalles completos.
 
+## Pipeline Results
+
+Modelo final `13.33M` params entrenado con `pretrain → SFT → DPO`:
+
+| Atributo | Valor |
+|----------|-------|
+| Params | 13,326,464 (13.33M) |
+| Arquitectura | MHA + SwiGLU + sin posición |
+| Dimensiones | d_model=256, num_layers=6, num_heads=4, d_ff=768 |
+| Vocab | 16K BPE |
+| Dataset | TinyStories (~500M tokens) |
+
+## Resultados
+
+Ver [`docs/results.md`](docs/results.md) para métricas detalladas, generación de texto y comparación entre etapas del pipeline.
+
+```bash
+# Evaluar checkpoint de cualquier etapa
+python eval_checkpoint.py -m runs/pretrain_*/checkpoints/best_model.pt
+python eval_checkpoint.py -m runs/sft_*/checkpoints/best_model.pt
+python eval_checkpoint.py -m runs/dpo_*/checkpoints/best_model.pt
+
+# Especificar config y dataset
+python eval_checkpoint.py -m runs/dpo_*/checkpoints/best_model.pt \
+  -c configs/sft_alpaca.yaml -d alpaca_cleaned --samples 100
+```
+
 ## Results — TinyShakespeare Sweep (108 combos)
 
 Grid search over 9 attention × 4 FFN × 3 positions on TinyShakespeare (char, d_model=64, 2 layers, 20 epochs). All 108 completed successfully.
