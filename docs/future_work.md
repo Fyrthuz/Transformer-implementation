@@ -4,12 +4,12 @@ Las siguientes funcionalidades están fuera del alcance actual pero son candidat
 
 | Funcionalidad | Razón |
 |--------------|-------|
-| **KV-cache para inferencia** | No crítico para 13M params; generación suficientemente rápida sin él |
-| **FlashAttention** | Requiere GPUs Ampere+; añade complejidad innecesaria para 13M params |
-| **FSDP / Distributed Data Parallel** | 13M params cabe en 1 GPU; se puede añadir vía `torchrun` |
+| **KV-cache para inferencia** | No crítico para ~13.3M params; generación suficientemente rápida sin él |
+| **FlashAttention** | Requiere GPUs Ampere+; añade complejidad innecesaria para ~13.3M params |
+| **FSDP / Distributed Data Parallel** | ~13.3M params cabe en 1 GPU; se puede añadir vía `torchrun` |
 | **Tensor Parallelism / Pipeline Parallelism** | Solo necesario para modelos >7B |
 | **LoRA / QLoRA (PEFT)** | El repo entrena full fine-tuning; LoRA sería otra etapa |
-| **Gradient Checkpointing** | Añade overhead computacional; no necesario para 13M params |
+| **Gradient Checkpointing** | Añade overhead computacional; no necesario para ~13.3M params |
 | **Serving / API REST** | Fuera del alcance educativo/experimental |
 | **Evaluación benchmarks (MMLU, HellaSwag, etc.)** | Requiere librería `lm-eval-harness` |
 | **Continuous batching** | Solo relevante para producción |

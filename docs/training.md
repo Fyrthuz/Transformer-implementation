@@ -12,7 +12,7 @@ The training loop follows a standard supervised language modeling setup:
 4. **Backward**: Gradient clipping at `grad_clip` norm.
 5. **Scheduler**: Cosine annealing over `num_epochs` (or constant LR if not cosine).
 6. **Evaluation**: Full test set pass after each epoch, no gradient computation.
-7. **Checkpointing**: When test loss improves, `best_model.pt` is saved with `model_state_dict`, `config`, `vocab_size`, `test_loss`, and `test_perplexity`.
+7. **Checkpointing**: When test loss improves, `best_model.pt` is saved in `runs/{run_name}/checkpoints/` with `model_state_dict`, `config`, `vocab_size`, `test_loss`, and `test_perplexity`. Se mantienen los últimos `save_total_limit` checkpoints.
 8. **Early stopping**: If `early_stop_patience > 0`, stops after that many epochs without test loss improvement.
 
 ## Loss Functions
@@ -155,7 +155,7 @@ python run.py pretrain -c configs/pretrain_tinystories.yaml \
 # 2. SFT con modelo grande, cargando checkpoint parcial
 python run.py sft -c configs/sft_alpaca.yaml \
   model.num_layers=8 model.d_model=512 \
-  -m best_model.pt
+  -m runs/pretrain_*/checkpoints/best_model.pt
 ```
 
 En este caso, el sistema reportará:
@@ -199,7 +199,7 @@ Wraps `run.py` with:
 ./run_experiment.sh pipeline -c configs/pipeline_full.yaml
 ./run_experiment.sh train -c configs/pretrain_tinystories.yaml
 ./run_experiment.sh sweep -c configs/sweep_shakespeare.yaml
-./run_experiment.sh generate -m best_model.pt -p "ROMEO:" -n 500 -t 0.7
+./run_experiment.sh generate -m runs/*/checkpoints/best_model.pt -p "ROMEO:" -n 500 -t 0.7
 ./run_experiment.sh test                  # run all tests
 ./run_experiment.sh test -v -k dpo        # run only dpo tests
 ./run_experiment.sh list

@@ -3,8 +3,8 @@
 ## Pipeline Completo
 
 ```
-Pretraining ──► SFT ──► DPO/PPO ──► GRPO
-(from scratch)  (instruct)  (alignment)  (reasoning)
+Pretraining ──► SFT ──► DPO/PPO ──► (opcional) GRPO
+(from scratch)  (instruct)  (alignment)    (reasoning)
 ```
 
 ## Comandos CLI
@@ -84,12 +84,14 @@ Cada etapa recibe automáticamente el `best_model.pt` de la etapa anterior como 
 # 1. Pre-training
 python run.py pretrain -c configs/pretrain_tinystories.yaml
 
-# 2. SFT
-python run.py sft -c configs/sft_alpaca.yaml -m best_model.pt
+# 2. SFT (checkpoint de pretrain está en runs/.../checkpoints/)
+python run.py sft -c configs/sft_alpaca.yaml -m runs/pretrain_*/checkpoints/best_model.pt
 
 # 3. DPO
-python run.py dpo -c configs/dpo_ultrafeedback.yaml -m best_model.pt
+python run.py dpo -c configs/dpo_ultrafeedback.yaml -m runs/sft_*/checkpoints/best_model.pt
 ```
+
+> El pipeline (`./run_experiment.sh pipeline -c configs/pipeline_sft_dpo.yaml`) pasa automáticamente el `best_model.pt` de cada etapa a la siguiente sin necesidad de rutas manuales.
 
 ## Carga Adaptativa de Checkpoints
 

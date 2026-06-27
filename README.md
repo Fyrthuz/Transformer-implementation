@@ -39,8 +39,8 @@ Pretraining ──► SFT ──► DPO/PPO ──► GRPO
 ### Comando único
 
 ```bash
-python run.py pipeline -c configs/pipeline_full.yaml \
-  model.d_model=256 model.num_layers=6 training.batch_size=32
+python run.py pipeline -c configs/pipeline_sft_dpo.yaml \
+  training.batch_size=16
 ```
 
 Ejecuta **pretrain → SFT → DPO** (o + GRPO) secuencialmente, pasando el mejor checkpoint de cada etapa a la siguiente.
@@ -62,15 +62,15 @@ Ejecuta **pretrain → SFT → DPO** (o + GRPO) secuencialmente, pasando el mejo
 # 1. Pre-training
 python run.py pretrain -c configs/pretrain_tinystories.yaml
 
-# 2. SFT
-python run.py sft -c configs/sft_alpaca.yaml -m best_model.pt
+# 2. SFT (best_model.pt de pretrain está en runs/.../checkpoints/)
+python run.py sft -c configs/sft_alpaca.yaml -m runs/pretrain_*/checkpoints/best_model.pt
 
 # 3. DPO Alignment
-python run.py dpo -c configs/dpo_ultrafeedback.yaml -m best_model.pt
-
-# 4. GRPO Reasoning
-python run.py grpo -c configs/grpo_gsm8k.yaml -m best_model.pt
+python run.py dpo -c configs/dpo_ultrafeedback.yaml -m runs/sft_*/checkpoints/best_model.pt
 ```
+
+> El pipeline (`./run_experiment.sh pipeline`) pasa el checkpoint automáticamente.
+> Para manual: el `best_model.pt` de cada etapa está en `runs/{run_name}/checkpoints/`.
 
 ## Fine-tuning con Configuración Diferente
 

@@ -26,7 +26,7 @@ Examples:
   ./run_experiment.sh generate -m best_model.pt -p "ROMEO:" -t 0.7 -n 300 -c configs/gqa_swiglu.yaml
   ./run_experiment.sh sweep -c configs/sweep_example.yaml
   ./run_experiment.sh pipeline -c configs/pipeline_full.yaml
-  ./run_experiment.sh pipeline -c configs/pipeline_full.yaml training.batch_size=32
+  ./run_experiment.sh pipeline -c configs/pipeline_sft_dpo.yaml training.batch_size=16
   ./run_experiment.sh test
   ./run_experiment.sh test -v -k dpo
   ./run_experiment.sh list

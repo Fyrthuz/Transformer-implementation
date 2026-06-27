@@ -54,18 +54,15 @@ python run.py pretrain -c configs/pretrain_tinystories.yaml
 
 **SFT:**
 ```bash
-python run.py sft -c configs/sft_alpaca.yaml -m best_model.pt
+python run.py sft -c configs/sft_alpaca.yaml -m runs/pretrain_*/checkpoints/best_model.pt
 ```
 
 **DPO:**
 ```bash
-python run.py dpo -c configs/dpo_ultrafeedback.yaml -m best_model.pt
+python run.py dpo -c configs/dpo_ultrafeedback.yaml -m runs/sft_*/checkpoints/best_model.pt
 ```
 
-**GRPO:**
-```bash
-python run.py grpo -c configs/grpo_gsm8k.yaml -m best_model.pt
-```
+Los checkpoints se guardan en `runs/{run_name}/checkpoints/`. Usar pipeline para gestión automática.
 
 **Train (original):**
 ```bash
@@ -105,7 +102,7 @@ tensorboard --logdir runs
 - **Stochastic depth**: Each layer can be randomly dropped during training, with survival probability linearly decreasing from top to bottom layers.
 - **Per-component dropout**: Attention dropout, FFN dropout, and embedding dropout can be set independently; if unset, they fall back to the global `dropout` value.
 - **Dataset caching**: Tokenized chunks are cached as `.pt` tensor files for ~40x faster reload on repeated runs.
-- **Multi-stage pipeline**: Ejecuta pretrain → SFT → DPO → GRPO con un solo comando, pasando checkpoints automáticamente.
+- **Multi-stage pipeline**: Ejecuta pretrain → SFT → DPO (opcional: + GRPO) con un solo comando, pasando checkpoints automáticamente.
 - **Adaptive checkpoint loading**: Carga checkpoints entrenados con arquitectura diferente (vocab_size, num_layers, d_model), redimensionando o omitiendo capas incompatibles.
 
 ## Default Configuration
